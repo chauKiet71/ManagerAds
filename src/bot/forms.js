@@ -1,6 +1,16 @@
 const sheets = require("../sheets");
 const meta = require("../meta");
-const { todayStr, normalizeDate, parseDate, toIsoDate, parseMoney, escapeHtml, formatMoney } = require("../utils");
+const {
+  todayStr,
+  normalizeDate,
+  parseDate,
+  toIsoDate,
+  parseMoney,
+  escapeHtml,
+  formatMoney,
+  parseReportTimes,
+  formatReportTimes,
+} = require("../utils");
 const { replyInsights } = require("../adsReport");
 const {
   statusKeyboard,
@@ -166,6 +176,26 @@ async function startLinkAdAccount(ctx) {
   return askPick(ctx, "Gán Ad Account Facebook");
 }
 
+async function startSetReportTimes(ctx) {
+  const current = await withSheet(ctx, () => sheets.getReportTimes());
+  if (!current.ok) return;
+  setForm(ctx, { type: "set-report-times", step: "times", data: {} });
+  await ctx.reply(
+    [
+      "Đặt giờ tự gửi chỉ số chiến dịch (giờ VN)",
+      "",
+      `Hiện tại: <b>${formatReportTimes(current.value)}</b>`,
+      "",
+      "Nhập các mốc, cách nhau bằng dấu phẩy.",
+      "Ví dụ: <code>8, 12, 16:30, 20, 23</code>",
+      "Gửi <b>tat</b> để tắt gửi tự động.",
+      "",
+      "Gửi /huy để hủy.",
+    ].join("\n"),
+    { parse_mode: "HTML" }
+  );
+}
+
 async function startCustomAdsRange(ctx) {
   const customer = ctx.session?.adsView?.customer || "";
   setForm(ctx, { type: "ads-date-range", step: "from", data: { customer } });
@@ -219,6 +249,7 @@ async function handleFormText(ctx) {
   if (form.type === "edit-campaign") return handleEditCampaignText(ctx, form, text);
   if (form.type === "link-ad-account") return handleLinkAdAccountText(ctx, form, text);
   if (form.type === "ads-date-range") return handleAdsDateRangeText(ctx, form, text);
+  if (form.type === "set-report-times") return handleSetReportTimesText(ctx, form, text);
   if (form.type === "change-status") {
     await ctx.reply(
       form.step === "pick"
@@ -228,6 +259,32 @@ async function handleFormText(ctx) {
     return true;
   }
   return false;
+}
+
+async function handleSetReportTimesText(ctx, form, text) {
+  const parsed = parseReportTimes(text);
+  if (parsed.error) {
+    await ctx.reply(parsed.error);
+    return true;
+  }
+  const saved = await withSheet(ctx, () => sheets.setReportTimes(parsed.times));
+  if (!saved.ok) return true;
+  clearForm(ctx);
+  if (!parsed.times.length) {
+    await ctx.reply("Đã tắt gửi chỉ số tự động. Dùng /dat_gio_bao_cao để bật lại.", mainKeyboard);
+    return true;
+  }
+  await ctx.reply(
+    [
+      "✅ Đã lưu giờ gửi chỉ số (giờ VN)",
+      formatReportTimes(parsed.times),
+      "",
+      "Bot kiểm tra mỗi phút. Không cần restart.",
+      "Dùng /gui_bao_cao để gửi thử ngay.",
+    ].join("\n"),
+    mainKeyboard
+  );
+  return true;
 }
 
 function parseDateRangeLine(text) {
@@ -990,6 +1047,7 @@ module.exports = {
   startChangeStatus,
   startLinkAdAccount,
   startCustomAdsRange,
+  startSetReportTimes,
   handleFormText,
   handleFormAction,
 };

@@ -65,15 +65,51 @@ function lastDayOfPrevMonth(p) {
   return addDays(startOfMonth(p), -1);
 }
 
-function nowTimeLabel() {
+function nowClock() {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: VN_TZ,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   }).formatToParts(new Date());
-  const get = (type) => parts.find((p) => p.type === type)?.value || "00";
-  return `${get("hour")}:${get("minute")}`;
+  const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
+  let h = get("hour");
+  const m = get("minute");
+  if (h === 24) h = 0;
+  return { h, m, label: `${pad(h)}:${pad(m)}` };
+}
+
+function nowTimeLabel() {
+  return nowClock().label;
+}
+
+const DEFAULT_REPORT_TIMES = ["08:00", "12:00", "16:00", "20:00", "23:00"];
+
+function parseReportTimes(text) {
+  const raw = String(text || "").trim();
+  if (!raw || /^(tat|tắt|off|0)$/i.test(raw)) {
+    return { times: [], disabled: true };
+  }
+  const parts = raw.split(/[,;]+|\s+/).map((s) => s.trim()).filter(Boolean);
+  const times = [];
+  for (const part of parts) {
+    const match = part.match(/^(\d{1,2})(?:[:hg](\d{1,2}))?h?$/i);
+    if (!match) {
+      return { error: `Không hiểu mốc "${part}". Ví dụ: 8, 12:30, 20h` };
+    }
+    const h = Number(match[1]);
+    const m = Number(match[2] || 0);
+    if (h > 23 || m > 59) {
+      return { error: `Giờ không hợp lệ: ${part}` };
+    }
+    times.push(`${pad(h)}:${pad(m)}`);
+  }
+  return { times: [...new Set(times)].sort(), disabled: false };
+}
+
+function formatReportTimes(times) {
+  if (!times || !times.length) return "Đang tắt";
+  return times.join(" · ");
 }
 
 const DATE_RANGE_PRESETS = {
@@ -232,6 +268,10 @@ module.exports = {
   toIsoDate,
   isoToDisplay,
   nowTimeLabel,
+  nowClock,
+  DEFAULT_REPORT_TIMES,
+  parseReportTimes,
+  formatReportTimes,
   DATE_RANGE_PRESETS,
   resolveDateRange,
   parseDate,

@@ -116,12 +116,15 @@ function helpText() {
     "/chien_dich — xem thông số (chọn hôm nay, hôm qua, 7 ngày…)",
     "/gan_ad_account — gán Ad Account Facebook cho khách",
     "/dong_bo_ads — lưu số hôm qua vào Google Sheet",
+    "/gio_bao_cao — xem giờ tự gửi chỉ số",
+    "/dat_gio_bao_cao — đặt giờ gửi (ví dụ 8, 12, 16:30, 20, 23)",
+    "/gui_bao_cao — gửi chỉ số hôm nay ngay",
     "/them_chien_dich — nhập thông số (chi tiêu, click...)",
     "/sua_chien_dich — sửa thông số chiến dịch",
     "",
     "/huy — hủy thao tác đang làm",
     "",
-    "Dữ liệu lưu trên Google Sheet. Bot nhắc hết ngân sách / thu phí mỗi sáng; 7:15 lưu số hôm qua; 08h · 12h · 16h · 20h · 23h gửi chỉ số Facebook Ads hôm nay.",
+    "Dữ liệu lưu trên Google Sheet. Bot nhắc hết ngân sách / thu phí mỗi sáng; 7:15 lưu số hôm qua. Giờ gửi chỉ số hôm nay tự chỉnh bằng /dat_gio_bao_cao.",
   ].join("\n");
 }
 

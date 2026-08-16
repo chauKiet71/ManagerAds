@@ -1,7 +1,7 @@
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
 const config = require("./config");
-const { todayStr } = require("./utils");
+const { todayStr, parseReportTimes, DEFAULT_REPORT_TIMES } = require("./utils");
 
 const SHEETS = {
   customers: {
@@ -41,6 +41,10 @@ const SHEETS = {
   adAccounts: {
     title: "TaiKhoanAds",
     headers: ["ID", "Khách hàng", "Ad Account ID"],
+  },
+  settings: {
+    title: "CaiDat",
+    headers: ["Key", "Value"],
   },
 };
 
@@ -161,6 +165,7 @@ const sheets = {
     await getSheet("fees");
     await getSheet("campaigns");
     await getSheet("adAccounts");
+    await getSheet("settings");
   },
 
   STATUS,
@@ -368,6 +373,42 @@ const sheets = {
       "Ad Account ID": idValue,
     });
     return { id, customer, adAccountId: idValue };
+  },
+
+  async getSetting(key) {
+    const sheet = await getSheet("settings");
+    const rows = await sheet.getRows();
+    const row = rows.find((r) => String(r.get("Key") || "") === key);
+    if (!row) return null;
+    return String(row.get("Value") ?? "");
+  },
+
+  async setSetting(key, value) {
+    const sheet = await getSheet("settings");
+    const rows = await sheet.getRows();
+    const existing = rows.find((r) => String(r.get("Key") || "") === key);
+    if (existing) {
+      existing.set("Value", value);
+      await existing.save();
+      return;
+    }
+    await sheet.addRow({ Key: key, Value: value });
+  },
+
+  async getReportTimes() {
+    const raw = await this.getSetting("ads_report_times");
+    if (raw === null) {
+      const fallback = parseReportTimes(config.adsReportHours);
+      return fallback.times?.length ? fallback.times : DEFAULT_REPORT_TIMES;
+    }
+    if (!String(raw).trim()) return [];
+    const parsed = parseReportTimes(raw);
+    return parsed.error ? [] : parsed.times;
+  },
+
+  async setReportTimes(times) {
+    await this.setSetting("ads_report_times", (times || []).join(","));
+    return times || [];
   },
 };
 

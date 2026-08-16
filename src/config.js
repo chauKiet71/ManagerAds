@@ -46,4 +46,5 @@ module.exports = {
   port: process.env.PORT ? Number(process.env.PORT) : 0,
   metaAccessToken: process.env.META_ACCESS_TOKEN || "",
   metaApiVersion: process.env.META_API_VERSION || "v21.0",
+  adsReportHours: process.env.ADS_REPORT_HOURS || "8,12,16,20,23",
 };

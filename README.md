@@ -16,7 +16,7 @@ Bot Node.js: thêm/xem khách hàng, ngân sách, ngày thu phí dịch vụ. D�
    `https://docs.google.com/spreadsheets/d/GOOGLE_SHEET_ID/edit`
 5. **Share** sheet cho email service account (quyền Editor), dạng `xxx@xxx.iam.gserviceaccount.com`.
 
-Bot tự tạo tab khi chạy lần đầu: `KhachHang`, `NganSach`, `ThuPhiDV`, `ChienDich`, `TaiKhoanAds`.
+Bot tự tạo tab khi chạy lần đầu: `KhachHang`, `NganSach`, `ThuPhiDV`, `ChienDich`, `TaiKhoanAds`, `CaiDat`.
 
 ## 3. Cấu hình
 
@@ -65,6 +65,9 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 | `/them_thu_phi` | Thêm phí và ngày thu |
 | `/sua_thu_phi` | Sửa phí hoặc ngày thu |
 | `/chien_dich` | Xem thông số: chọn hôm nay, hôm qua, 7/14/28/30 ngày, tuần, tháng, hoặc tùy chọn ngày |
+| `/gio_bao_cao` | Xem các mốc giờ tự gửi chỉ số |
+| `/dat_gio_bao_cao` | Đặt / tắt giờ gửi (ví dụ `8, 12, 16:30, 20, 23`) |
+| `/gui_bao_cao` | Gửi chỉ số hôm nay ngay |
 | `/gan_ad_account` | Gán Ad Account Facebook cho một khách |
 | `/dong_bo_ads` | Kéo số **hôm qua** từ Marketing API vào tab ChienDich |
 | `/them_chien_dich` | Nhập chi tiêu, tiếp cận, click, kết quả |
@@ -75,7 +78,7 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 
 Mỗi sáng **7:15** (giờ VN) bot lưu số Facebook Ads hôm qua vào Sheet.
 
-Bot tự gửi **chỉ số hôm nay** lúc **08:00, 12:00, 16:00, 20:00, 23:00** (giờ VN). Số Meta có thể chậm vài phút so với Ads Manager.
+Bot tự gửi **chỉ số hôm nay** theo giờ bạn đặt (`/dat_gio_bao_cao`, mặc định 08:00 · 12:00 · 16:00 · 20:00 · 23:00, giờ VN). `/gui_bao_cao` để gửi thử ngay. Số Meta có thể chậm vài phút so với Ads Manager.
 
 ## Facebook Ads (kéo số tự động)
 

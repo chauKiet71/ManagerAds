@@ -8,6 +8,7 @@ const {
   feeListKeyboard,
   campaignListKeyboard,
   dateRangeKeyboard,
+  reportTimesKeyboard,
 } = require("./keyboards");
 const {
   formatCustomerList,
@@ -17,7 +18,8 @@ const {
 } = require("./format");
 const forms = require("./forms");
 const { syncYesterday, formatSyncResult } = require("../sync");
-const { replyInsights } = require("../adsReport");
+const { replyInsights, loadCampaignInsights, formatDigestReport, splitTelegram } = require("../adsReport");
+const { resolveDateRange, formatReportTimes } = require("../utils");
 
 function isCmd(text, name) {
   if (!text) return false;
@@ -56,6 +58,44 @@ async function handleUpdate(update) {
 
   if (update.callback_query) return dispatchCallback(ctx);
   if (update.message?.text) return dispatchText(ctx);
+}
+
+async function showReportTimes(ctx) {
+  forms.clearForm(ctx);
+  try {
+    const times = await sheets.getReportTimes();
+    return ctx.reply(
+      [
+        "Giờ tự gửi chỉ số chiến dịch (giờ VN)",
+        "",
+        times.length ? formatReportTimes(times) : "Đang tắt — không gửi tự động.",
+        "",
+        "Bot kiểm tra mỗi phút. Đổi giờ bằng /dat_gio_bao_cao.",
+      ].join("\n"),
+      reportTimesKeyboard()
+    );
+  } catch (err) {
+    console.error(err);
+    return ctx.reply("Không đọc được Google Sheet.");
+  }
+}
+
+async function sendDigestNow(ctx) {
+  forms.clearForm(ctx);
+  await ctx.reply("Đang kéo chỉ số Facebook Ads hôm nay...");
+  try {
+    const range = resolveDateRange("today");
+    const result = await loadCampaignInsights({
+      since: range.since,
+      until: range.until,
+    });
+    const text = formatDigestReport(result, range);
+    const chunks = splitTelegram(text);
+    for (const chunk of chunks) await ctx.reply(chunk);
+  } catch (err) {
+    console.error("Lỗi /gui_bao_cao:", err);
+    await ctx.reply(`Không gửi được báo cáo: ${err.message || err}`);
+  }
 }
 
 async function runAdsSync(ctx) {
@@ -151,6 +191,9 @@ async function dispatchText(ctx) {
   if (isCmd(text, "sua_chien_dich")) return forms.startEditCampaign(ctx);
   if (isCmd(text, "gan_ad_account")) return forms.startLinkAdAccount(ctx);
   if (isCmd(text, "dong_bo_ads")) return runAdsSync(ctx);
+  if (isCmd(text, "gio_bao_cao")) return showReportTimes(ctx);
+  if (isCmd(text, "dat_gio_bao_cao")) return forms.startSetReportTimes(ctx);
+  if (isCmd(text, "gui_bao_cao")) return sendDigestNow(ctx);
 
   if (isCmd(text, "khach_hang") || text === "👥 Khách hàng") {
     forms.clearForm(ctx);
@@ -204,6 +247,16 @@ async function dispatchCallback(ctx) {
   if (data === "go:add-campaign") return forms.startAddCampaign(ctx);
   if (data === "go:edit-campaign") return forms.startEditCampaign(ctx);
   if (data === "go:campaign-menu") return showCampaignMenu(ctx);
+  if (data === "go:set-report-times") return forms.startSetReportTimes(ctx);
+  if (data === "go:send-digest") return sendDigestNow(ctx);
+  if (data === "go:off-report-times") {
+    try {
+      await sheets.setReportTimes([]);
+      return ctx.reply("Đã tắt gửi chỉ số tự động. /dat_gio_bao_cao để bật lại.", mainKeyboard);
+    } catch (err) {
+      return ctx.reply("Không lưu được cài đặt.");
+    }
+  }
   if (data === "go:ads-range") {
     const customer = ctx.session?.adsView?.customer || "";
     return askDateRange(ctx, customer);
@@ -248,6 +301,9 @@ async function runPolling() {
     { command: "sua_chien_dich", description: "Sửa thông số chiến dịch" },
     { command: "gan_ad_account", description: "Gán Ad Account Facebook" },
     { command: "dong_bo_ads", description: "Kéo số Facebook Ads hôm qua" },
+    { command: "gio_bao_cao", description: "Xem giờ gửi chỉ số ads" },
+    { command: "dat_gio_bao_cao", description: "Đặt giờ gửi chỉ số ads" },
+    { command: "gui_bao_cao", description: "Gửi chỉ số hôm nay ngay" },
     { command: "huy", description: "Hủy thao tác" },
   ]);
 

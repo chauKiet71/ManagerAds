@@ -72,6 +72,20 @@ const platformKeyboard = {
   },
 };
 
+function reportTimesKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "✏️ Đổi giờ", callback_data: "go:set-report-times" },
+          { text: "📤 Gửi ngay", callback_data: "go:send-digest" },
+        ],
+        [{ text: "Tắt tự động", callback_data: "go:off-report-times" }],
+      ],
+    },
+  };
+}
+
 function dateRangeKeyboard() {
   return {
     reply_markup: {
@@ -144,4 +158,5 @@ module.exports = {
   campaignListKeyboard,
   campaignPickKeyboard,
   dateRangeKeyboard,
+  reportTimesKeyboard,
 };

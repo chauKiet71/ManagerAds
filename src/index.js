@@ -33,7 +33,7 @@ async function main() {
   console.log("Google Sheet OK:", config.sheetId);
 
   const bot = { sendMessage };
-  startCron(bot);
+  await startCron(bot);
   checkAndNotify(bot).catch((err) => {
     console.error("Kiểm tra thông báo lúc khởi động thất bại:", err);
   });
