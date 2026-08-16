@@ -1,0 +1,21 @@
+{
+  "name": "bot-manager-ads",
+  "version": "1.0.0",
+  "description": "Telegram bot quản lý khách hàng ads — đồng bộ Google Sheet, nhắc ngân sách và thu phí dịch vụ",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "google-auth-library": "^9.15.1",
+    "google-spreadsheet": "^4.1.4",
+    "node-cron": "^3.0.3",
+    "telegraf": "^4.16.3"
+  }
+}
