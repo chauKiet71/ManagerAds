@@ -410,6 +410,17 @@ const sheets = {
     await this.setSetting("ads_report_times", (times || []).join(","));
     return times || [];
   },
+
+  async getReportChatId() {
+    const saved = await this.getSetting("ads_report_chat_id");
+    if (saved && String(saved).trim()) return String(saved).trim();
+    return config.adminChatId || "";
+  },
+
+  async setReportChatId(chatId) {
+    if (!chatId) return;
+    await this.setSetting("ads_report_chat_id", String(chatId));
+  },
 };
 
 module.exports = sheets;

@@ -6,24 +6,34 @@ const {
   formatMoney,
   resolveDateRange,
   nowClock,
-  toIsoDate,
-  todayParts,
   formatReportTimes,
+  nextReportAt,
 } = require("./utils");
 const { syncYesterday, formatSyncResult } = require("./sync");
 const { loadCampaignInsights, formatDigestReport, splitTelegram } = require("./adsReport");
 
-let lastDigestKey = "";
 let cachedTimes = null;
 let digestBot = null;
 let digestBusy = false;
+let nextTimer = null;
+let cachedChatId = "";
+
+async function resolveReportChatId() {
+  if (cachedChatId) return cachedChatId;
+  try {
+    cachedChatId = (await sheets.getReportChatId()) || config.adminChatId || "";
+  } catch (_) {
+    cachedChatId = config.adminChatId || "";
+  }
+  return cachedChatId;
+}
 
 function notifyChatId() {
-  return config.adminChatId;
+  return cachedChatId || config.adminChatId;
 }
 
 async function checkAndNotify(bot) {
-  const chatId = notifyChatId();
+  const chatId = notifyChatId() || (await resolveReportChatId());
   if (!chatId) {
     console.warn("Bỏ qua thông báo: chưa có TELEGRAM_ADMIN_CHAT_ID");
     return;
@@ -64,16 +74,16 @@ async function checkAndNotify(bot) {
   }
 }
 
-async function sendAdsDigest(bot, { notifySkip = false } = {}) {
-  const chatId = notifyChatId();
+async function sendAdsDigest(bot, { notifySkip = false, chatId } = {}) {
+  const to = chatId || (await resolveReportChatId());
   if (!config.metaAccessToken) {
     const msg = "Bỏ qua báo cáo ads: chưa có META_ACCESS_TOKEN";
     console.warn(msg);
-    if (notifySkip && chatId) await bot.sendMessage(chatId, msg);
+    if (notifySkip && to) await bot.sendMessage(to, msg);
     return { ok: false, error: msg };
   }
-  if (!chatId) {
-    const msg = "Bỏ qua báo cáo ads: chưa có TELEGRAM_ADMIN_CHAT_ID";
+  if (!to) {
+    const msg = "Bỏ qua báo cáo ads: chưa có chat để gửi. Mở /dat_gio_bao_cao một lần.";
     console.warn(msg);
     return { ok: false, error: msg };
   }
@@ -84,14 +94,9 @@ async function sendAdsDigest(bot, { notifySkip = false } = {}) {
   });
   const text = formatDigestReport(result, range);
   for (const chunk of splitTelegram(text)) {
-    await bot.sendMessage(chatId, chunk);
+    await bot.sendMessage(to, chunk);
   }
   return { ok: true };
-}
-
-function rememberReportTimes(times) {
-  cachedTimes = Array.isArray(times) ? times : null;
-  lastDigestKey = "";
 }
 
 async function loadReportTimes() {
@@ -100,40 +105,64 @@ async function loadReportTimes() {
   return cachedTimes;
 }
 
-async function tickAdsDigest(bot = digestBot) {
-  if (!bot || digestBusy) return;
-  const clock = nowClock();
-  let times;
-  try {
-    times = await loadReportTimes();
-  } catch (err) {
-    console.error("Không đọc được giờ báo cáo ads:", err.message || err);
-    return;
+function describeNextReport(times = cachedTimes) {
+  const next = nextReportAt(times || []);
+  if (!next) return "Chưa hẹn lần gửi tới (không có mốc).";
+  const mins = Math.max(1, Math.round(next.delayMs / 60000));
+  const secs = Math.max(1, Math.round(next.delayMs / 1000));
+  if (next.delayMs < 60000) return `Lần gửi tới: ${next.label} (sau ${secs} giây)`;
+  return `Lần gửi tới: ${next.label} (sau ${mins} phút)`;
+}
+
+function rescheduleReport(bot = digestBot) {
+  if (nextTimer) {
+    clearTimeout(nextTimer);
+    nextTimer = null;
   }
-  if (!times.includes(clock.label)) return;
-  const key = `${toIsoDate(todayParts())}-${clock.label}`;
-  if (lastDigestKey === key) return;
-  lastDigestKey = key;
-  digestBusy = true;
-  console.log("Đến giờ báo cáo ads", clock.label, "mốc", times.join(","));
-  try {
-    await sendAdsDigest(bot, { notifySkip: true });
-  } catch (err) {
-    lastDigestKey = "";
-    console.error("Lỗi cron báo cáo ads:", err);
-    const chatId = notifyChatId();
-    if (chatId) {
-      await bot
-        .sendMessage(chatId, `Lỗi báo cáo Facebook Ads lúc ${clock.label}: ${err.message || err}`)
-        .catch(() => {});
+  const times = cachedTimes || [];
+  const next = nextReportAt(times);
+  if (!next || !bot) {
+    console.log("Báo cáo ads: tắt hẹn giờ —", formatReportTimes(times));
+    return next;
+  }
+  const delay = Math.max(300, Math.min(next.delayMs, 2147483647));
+  console.log(
+    `Báo cáo ads: hẹn ${next.label} (sau ${Math.round(delay / 1000)}s), giờ máy VN ${nowClock().label}`
+  );
+  nextTimer = setTimeout(async () => {
+    nextTimer = null;
+    if (digestBusy) {
+      rescheduleReport(bot);
+      return;
     }
-  } finally {
-    digestBusy = false;
-  }
+    digestBusy = true;
+    try {
+      console.log("Đến giờ báo cáo ads", next.label);
+      await sendAdsDigest(bot, { notifySkip: true });
+    } catch (err) {
+      console.error("Lỗi gửi báo cáo ads:", err);
+      const chatId = await resolveReportChatId();
+      if (chatId) {
+        await bot
+          .sendMessage(chatId, `Lỗi báo cáo Facebook Ads lúc ${next.label}: ${err.message || err}`)
+          .catch(() => {});
+      }
+    } finally {
+      digestBusy = false;
+      rescheduleReport(bot);
+    }
+  }, delay);
+  return next;
+}
+
+function rememberReportTimes(times, chatId) {
+  cachedTimes = Array.isArray(times) ? times : null;
+  if (chatId) cachedChatId = String(chatId);
+  return rescheduleReport(digestBot);
 }
 
 async function syncAdsAndNotify(bot) {
-  const chatId = notifyChatId();
+  const chatId = await resolveReportChatId();
   if (!config.metaAccessToken) {
     console.warn("Bỏ qua sync ads: chưa có META_ACCESS_TOKEN");
     return;
@@ -170,7 +199,7 @@ async function startCron(bot) {
         await syncAdsAndNotify(bot);
       } catch (err) {
         console.error("Lỗi cron sync ads:", err);
-        const chatId = notifyChatId();
+        const chatId = await resolveReportChatId();
         if (chatId) {
           await bot.sendMessage(chatId, `Lỗi kéo số Facebook Ads: ${err.message || err}`).catch(() => {});
         }
@@ -180,18 +209,13 @@ async function startCron(bot) {
   );
   console.log(`Cron sync ads: 15 7 * * * (${config.timezone})`);
 
-  const runTick = () => {
-    tickAdsDigest(bot).catch((err) => console.error("Lỗi tick báo cáo ads:", err));
-  };
-  cron.schedule("* * * * *", runTick, { timezone: config.timezone });
-  setInterval(runTick, 15000);
-  setTimeout(runTick, 2000);
-
   try {
-    const times = await loadReportTimes();
-    const clock = nowClock();
+    cachedTimes = await sheets.getReportTimes();
+    cachedChatId = (await sheets.getReportChatId()) || config.adminChatId || "";
+    const next = rescheduleReport(bot);
     console.log(
-      `Báo cáo ads: giờ VN đang ${clock.label} — gửi lúc ${formatReportTimes(times)} (kiểm tra mỗi 15 giây)`
+      `Báo cáo ads: giờ VN ${nowClock().label} — mốc ${formatReportTimes(cachedTimes)}` +
+        (next ? ` — ${describeNextReport(cachedTimes)}` : "")
     );
   } catch (err) {
     console.warn("Chưa đọc được giờ báo cáo ads:", err.message || err);
@@ -203,6 +227,7 @@ module.exports = {
   checkAndNotify,
   syncAdsAndNotify,
   sendAdsDigest,
-  tickAdsDigest,
   rememberReportTimes,
+  describeNextReport,
+  rescheduleReport,
 };

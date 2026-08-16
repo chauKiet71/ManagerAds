@@ -65,19 +65,54 @@ function lastDayOfPrevMonth(p) {
   return addDays(startOfMonth(p), -1);
 }
 
-function nowClock() {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: VN_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    hourCycle: "h23",
-  }).formatToParts(new Date());
-  const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
-  let h = get("hour");
-  const m = get("minute");
-  if (h === 24) h = 0;
-  return { h, m, label: `${pad(h)}:${pad(m)}` };
+const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+function vnParts(ms = Date.now()) {
+  const vn = new Date(ms + VN_OFFSET_MS);
+  return {
+    y: vn.getUTCFullYear(),
+    m: vn.getUTCMonth() + 1,
+    d: vn.getUTCDate(),
+    h: vn.getUTCHours(),
+    min: vn.getUTCMinutes(),
+    s: vn.getUTCSeconds(),
+  };
+}
+
+function vnWallToUtcMs(y, m, d, h, min) {
+  return Date.UTC(y, m - 1, d, h, min, 0, 0) - VN_OFFSET_MS;
+}
+
+function nowClock(ms = Date.now()) {
+  const p = vnParts(ms);
+  return { h: p.h, m: p.min, label: `${pad(p.h)}:${pad(p.min)}` };
+}
+
+function nextReportAt(times, fromMs = Date.now()) {
+  if (!times || !times.length) return null;
+  const p = vnParts(fromMs);
+  let best = null;
+  for (const label of times) {
+    const [h, min] = String(label).split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(min)) continue;
+    let at = vnWallToUtcMs(p.y, p.m, p.d, h, min);
+    if (at <= fromMs + 500) {
+      const tomorrow = new Date(Date.UTC(p.y, p.m - 1, p.d));
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      at = vnWallToUtcMs(
+        tomorrow.getUTCFullYear(),
+        tomorrow.getUTCMonth() + 1,
+        tomorrow.getUTCDate(),
+        h,
+        min
+      );
+    }
+    if (best == null || at < best.at) {
+      const clock = nowClock(at);
+      best = { at, label: clock.label, delayMs: at - fromMs };
+    }
+  }
+  return best;
 }
 
 function nowTimeLabel() {
@@ -270,6 +305,7 @@ module.exports = {
   isoToDisplay,
   nowTimeLabel,
   nowClock,
+  nextReportAt,
   DEFAULT_REPORT_TIMES,
   parseReportTimes,
   formatReportTimes,

@@ -20,7 +20,7 @@ const forms = require("./forms");
 const { syncYesterday, formatSyncResult } = require("../sync");
 const { replyInsights, loadCampaignInsights, formatDigestReport, splitTelegram } = require("../adsReport");
 const { resolveDateRange, formatReportTimes } = require("../utils");
-const { rememberReportTimes } = require("../cron");
+const { rememberReportTimes, describeNextReport } = require("../cron");
 
 function isCmd(text, name) {
   if (!text) return false;
@@ -65,14 +65,18 @@ async function showReportTimes(ctx) {
   forms.clearForm(ctx);
   try {
     const times = await sheets.getReportTimes();
+    rememberReportTimes(times, ctx.chatId || ctx.from?.id);
     return ctx.reply(
       [
         "Giờ tự gửi chỉ số chiến dịch (giờ VN)",
         "",
         times.length ? formatReportTimes(times) : "Đang tắt — không gửi tự động.",
+        times.length ? describeNextReport(times) : "",
         "",
-        "Bot kiểm tra mỗi phút. Đổi giờ bằng /dat_gio_bao_cao.",
-      ].join("\n"),
+        "Đổi giờ bằng /dat_gio_bao_cao. Gửi ngay bằng /gui_bao_cao.",
+      ]
+        .filter((line, i, arr) => line !== "" || arr[i - 1] !== "")
+        .join("\n"),
       reportTimesKeyboard()
     );
   } catch (err) {

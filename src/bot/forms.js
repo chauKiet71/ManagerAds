@@ -13,8 +13,7 @@ const {
   nowClock,
 } = require("../utils");
 const { replyInsights } = require("../adsReport");
-const { rememberReportTimes, sendAdsDigest } = require("../cron");
-const tg = require("../telegram");
+const { rememberReportTimes } = require("../cron");
 const {
   statusKeyboard,
   customerPickKeyboard,
@@ -270,35 +269,34 @@ async function handleSetReportTimesText(ctx, form, text) {
     await ctx.reply(parsed.error);
     return true;
   }
-  const saved = await withSheet(ctx, () => sheets.setReportTimes(parsed.times));
+  const chatId = ctx.chatId || ctx.from?.id;
+  const saved = await withSheet(ctx, async () => {
+    await sheets.setReportTimes(parsed.times);
+    if (chatId) await sheets.setReportChatId(chatId);
+  });
   if (!saved.ok) return true;
-  rememberReportTimes(parsed.times);
+  const next = rememberReportTimes(parsed.times, chatId);
   clearForm(ctx);
   if (!parsed.times.length) {
     await ctx.reply("Đã tắt gửi chỉ số tự động. Dùng /dat_gio_bao_cao để bật lại.", mainKeyboard);
     return true;
   }
   const clock = nowClock();
-  const dueNow = parsed.times.includes(clock.label);
-  await ctx.reply(
-    [
-      "✅ Đã lưu giờ gửi chỉ số (giờ VN)",
-      formatReportTimes(parsed.times),
-      "",
-      dueNow
-        ? `Đúng mốc ${clock.label} — đang gửi báo cáo...`
-        : `Giờ VN hiện tại: ${clock.label}. Bot sẽ gửi khi đến đúng mốc.`,
-    ].join("\n"),
-    mainKeyboard
-  );
-  if (dueNow) {
-    try {
-      await sendAdsDigest({ sendMessage: tg.sendMessage }, { notifySkip: true });
-    } catch (err) {
-      console.error("Gửi báo cáo ngay sau khi đặt giờ:", err);
-      await ctx.reply(`Không gửi được báo cáo: ${err.message || err}`);
-    }
+  const lines = [
+    "✅ Đã lưu giờ gửi chỉ số (giờ VN)",
+    formatReportTimes(parsed.times),
+    "",
+    `Giờ máy bot (VN): ${clock.label}`,
+  ];
+  if (next) {
+    const secs = Math.max(1, Math.round(next.delayMs / 1000));
+    lines.push(
+      secs < 60
+        ? `Lần gửi tới: ${next.label} (sau ${secs} giây)`
+        : `Lần gửi tới: ${next.label} (sau ${Math.round(secs / 60)} phút)`
+    );
   }
+  await ctx.reply(lines.join("\n"), mainKeyboard);
   return true;
 }
 
