@@ -72,6 +72,38 @@ const platformKeyboard = {
   },
 };
 
+function dateRangeKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "Hôm nay", callback_data: "dr:today" },
+          { text: "Hôm qua", callback_data: "dr:yesterday" },
+        ],
+        [{ text: "Hôm nay và hôm qua", callback_data: "dr:today_yday" }],
+        [
+          { text: "7 ngày qua", callback_data: "dr:d7" },
+          { text: "14 ngày qua", callback_data: "dr:d14" },
+        ],
+        [
+          { text: "28 ngày qua", callback_data: "dr:d28" },
+          { text: "30 ngày qua", callback_data: "dr:d30" },
+        ],
+        [
+          { text: "Tuần này", callback_data: "dr:week" },
+          { text: "Tuần trước", callback_data: "dr:last_week" },
+        ],
+        [
+          { text: "Tháng này", callback_data: "dr:month" },
+          { text: "Tháng trước", callback_data: "dr:last_month" },
+        ],
+        [{ text: "Tùy chọn ngày…", callback_data: "dr:custom" }],
+        [{ text: "« Chọn khách khác", callback_data: "go:campaign-menu" }],
+      ],
+    },
+  };
+}
+
 function campaignListKeyboard(customers) {
   const rows = (customers || []).slice(0, 20).map((c, i) => [
     { text: c.name.slice(0, 60), callback_data: `cview:${i}` },
@@ -111,4 +143,5 @@ module.exports = {
   platformKeyboard,
   campaignListKeyboard,
   campaignPickKeyboard,
+  dateRangeKeyboard,
 };

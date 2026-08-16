@@ -1,6 +1,7 @@
 const sheets = require("../sheets");
 const meta = require("../meta");
-const { todayStr, normalizeDate, parseMoney, escapeHtml, formatMoney } = require("../utils");
+const { todayStr, normalizeDate, parseDate, toIsoDate, parseMoney, escapeHtml, formatMoney } = require("../utils");
+const { replyInsights } = require("../adsReport");
 const {
   statusKeyboard,
   customerPickKeyboard,
@@ -165,6 +166,23 @@ async function startLinkAdAccount(ctx) {
   return askPick(ctx, "Gán Ad Account Facebook");
 }
 
+async function startCustomAdsRange(ctx) {
+  const customer = ctx.session?.adsView?.customer || "";
+  setForm(ctx, { type: "ads-date-range", step: "from", data: { customer } });
+  await ctx.reply(
+    [
+      "Tùy chọn khoảng ngày (giờ VN)",
+      customer ? `Khách hàng: ${customer}` : "Tất cả khách đã gán Ad Account",
+      "",
+      "Nhập <b>ngày bắt đầu</b> (dd/mm/yyyy)",
+      "Hoặc một dòng: <code>15/8/2026 - 20/8/2026</code>",
+      "",
+      "Gửi /huy để hủy.",
+    ].join("\n"),
+    { parse_mode: "HTML" }
+  );
+}
+
 async function askPick(ctx, title) {
   const result = await withSheet(ctx, () => sheets.listCustomers());
   if (!result.ok) return;
@@ -200,6 +218,7 @@ async function handleFormText(ctx) {
   if (form.type === "add-campaign") return handleAddCampaignText(ctx, form, text);
   if (form.type === "edit-campaign") return handleEditCampaignText(ctx, form, text);
   if (form.type === "link-ad-account") return handleLinkAdAccountText(ctx, form, text);
+  if (form.type === "ads-date-range") return handleAdsDateRangeText(ctx, form, text);
   if (form.type === "change-status") {
     await ctx.reply(
       form.step === "pick"
@@ -209,6 +228,50 @@ async function handleFormText(ctx) {
     return true;
   }
   return false;
+}
+
+function parseDateRangeLine(text) {
+  const match = String(text)
+    .trim()
+    .match(/^(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})\s*[-–]\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})$/);
+  if (!match) return null;
+  const from = parseDate(match[1]);
+  const to = parseDate(match[2]);
+  if (!from || !to) return null;
+  return { since: toIsoDate(from), until: toIsoDate(to) };
+}
+
+async function finishCustomAdsRange(ctx, form, since, until) {
+  if (since > until) {
+    const tmp = since;
+    since = until;
+    until = tmp;
+  }
+  const customer = form.data.customer || ctx.session?.adsView?.customer || "";
+  if (!ctx.session) ctx.session = {};
+  ctx.session.adsView = { customer };
+  clearForm(ctx);
+  await replyInsights(ctx, { customer, rangeKey: "custom", custom: { since, until } });
+  return true;
+}
+
+async function handleAdsDateRangeText(ctx, form, text) {
+  const both = parseDateRangeLine(text);
+  if (both) return finishCustomAdsRange(ctx, form, both.since, both.until);
+
+  const parsed = parseDate(text);
+  if (!parsed) {
+    await ctx.reply("Ngày không hợp lệ. Ví dụ: 15/8/2026 hoặc 15/8/2026 - 20/8/2026");
+    return true;
+  }
+  const iso = toIsoDate(parsed);
+  if (form.step === "from") {
+    form.data.since = iso;
+    form.step = "to";
+    await ctx.reply("Nhập <b>ngày kết thúc</b> (dd/mm/yyyy):", { parse_mode: "HTML" });
+    return true;
+  }
+  return finishCustomAdsRange(ctx, form, form.data.since, iso);
 }
 
 async function handleLinkAdAccountText(ctx, form, text) {
@@ -926,6 +989,7 @@ module.exports = {
   startEditCampaign,
   startChangeStatus,
   startLinkAdAccount,
+  startCustomAdsRange,
   handleFormText,
   handleFormAction,
 };

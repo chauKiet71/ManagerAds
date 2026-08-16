@@ -113,15 +113,15 @@ function helpText() {
     "/sua_thu_phi — sửa phí hoặc ngày thu",
     "",
     "<b>Chiến dịch ads</b>",
-    "/chien_dich — xem thông số chiến dịch",
+    "/chien_dich — xem thông số (chọn hôm nay, hôm qua, 7 ngày…)",
     "/gan_ad_account — gán Ad Account Facebook cho khách",
-    "/dong_bo_ads — kéo số hôm qua từ Facebook Ads",
+    "/dong_bo_ads — lưu số hôm qua vào Google Sheet",
     "/them_chien_dich — nhập thông số (chi tiêu, click...)",
     "/sua_chien_dich — sửa thông số chiến dịch",
     "",
     "/huy — hủy thao tác đang làm",
     "",
-    "Dữ liệu lưu trên Google Sheet. Mỗi sáng bot nhắc hết ngân sách / thu phí, và lúc 7:15 kéo số Facebook Ads hôm qua.",
+    "Dữ liệu lưu trên Google Sheet. Bot nhắc hết ngân sách / thu phí mỗi sáng; 7:15 lưu số hôm qua; 08h · 12h · 16h · 20h · 23h gửi chỉ số Facebook Ads hôm nay.",
   ].join("\n");
 }
 

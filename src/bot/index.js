@@ -7,16 +7,17 @@ const {
   mainKeyboard,
   feeListKeyboard,
   campaignListKeyboard,
+  dateRangeKeyboard,
 } = require("./keyboards");
 const {
   formatCustomerList,
   formatBudgetList,
   formatFeeList,
-  formatCampaignList,
   helpText,
 } = require("./format");
 const forms = require("./forms");
 const { syncYesterday, formatSyncResult } = require("../sync");
+const { replyInsights } = require("../adsReport");
 
 function isCmd(text, name) {
   if (!text) return false;
@@ -83,24 +84,18 @@ async function showCampaignMenu(ctx) {
   }
 }
 
+function askDateRange(ctx, customer) {
+  if (!ctx.session) ctx.session = {};
+  ctx.session.adsView = { customer: customer || "" };
+  const who = customer ? `khách "${customer}"` : "tất cả khách đã gán Ad Account";
+  return ctx.reply(
+    `Chọn khoảng thời gian (giờ TP. Hồ Chí Minh) — ${who}:`,
+    dateRangeKeyboard()
+  );
+}
+
 async function showCampaigns(ctx, customer) {
-  try {
-    const list = await sheets.listCampaigns(customer);
-    await ctx.reply(formatCampaignList(list, customer), {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "➕ Nhập thông số", callback_data: "go:add-campaign" },
-            { text: "✏️ Sửa", callback_data: "go:edit-campaign" },
-          ],
-          [{ text: "« Chọn khách khác", callback_data: "go:campaign-menu" }],
-        ],
-      },
-    });
-  } catch (err) {
-    console.error(err);
-    await ctx.reply("Không đọc được Google Sheet.");
-  }
+  return askDateRange(ctx, customer);
 }
 
 async function showCustomers(ctx, status) {
@@ -209,12 +204,27 @@ async function dispatchCallback(ctx) {
   if (data === "go:add-campaign") return forms.startAddCampaign(ctx);
   if (data === "go:edit-campaign") return forms.startEditCampaign(ctx);
   if (data === "go:campaign-menu") return showCampaignMenu(ctx);
+  if (data === "go:ads-range") {
+    const customer = ctx.session?.adsView?.customer || "";
+    return askDateRange(ctx, customer);
+  }
   if (data === "cview:all") return showCampaigns(ctx);
   if (data.startsWith("cview:")) {
     const customers = ctx.session.campaignCustomers || (await sheets.listCustomers());
     const customer = customers[Number(data.slice(6))];
     if (!customer) return ctx.reply("Không tìm thấy khách hàng.");
     return showCampaigns(ctx, customer.name);
+  }
+  if (data === "dr:custom") return forms.startCustomAdsRange(ctx);
+  if (data.startsWith("dr:")) {
+    const rangeKey = data.slice(3);
+    const customer = ctx.session?.adsView?.customer || "";
+    try {
+      return await replyInsights(ctx, { customer, rangeKey });
+    } catch (err) {
+      console.error("Lỗi xem ads:", err);
+      return ctx.reply(`Không kéo được số: ${err.message || err}`);
+    }
   }
 }
 

@@ -64,7 +64,7 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 | `/thu_phi_dv` | Danh sách phí DV + ngày thu |
 | `/them_thu_phi` | Thêm phí và ngày thu |
 | `/sua_thu_phi` | Sửa phí hoặc ngày thu |
-| `/chien_dich` | Xem thông số chiến dịch ads |
+| `/chien_dich` | Xem thông số: chọn hôm nay, hôm qua, 7/14/28/30 ngày, tuần, tháng, hoặc tùy chọn ngày |
 | `/gan_ad_account` | Gán Ad Account Facebook cho một khách |
 | `/dong_bo_ads` | Kéo số **hôm qua** từ Marketing API vào tab ChienDich |
 | `/them_chien_dich` | Nhập chi tiêu, tiếp cận, click, kết quả |
@@ -73,7 +73,9 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 
 Đến **ngày hết ngân sách** hoặc **ngày thu phí**, bot nhắn cho admin (và các ngày đã quá hạn chưa nhắc, nếu bot từng tắt).
 
-Mỗi sáng **7:15** (giờ VN) bot tự kéo số Facebook Ads hôm qua và gửi tóm tắt cho admin.
+Mỗi sáng **7:15** (giờ VN) bot lưu số Facebook Ads hôm qua vào Sheet.
+
+Bot tự gửi **chỉ số hôm nay** lúc **08:00, 12:00, 16:00, 20:00, 23:00** (giờ VN). Số Meta có thể chậm vài phút so với Ads Manager.
 
 ## Facebook Ads (kéo số tự động)
 

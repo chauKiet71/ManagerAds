@@ -45,19 +45,31 @@ async function graphGet(path, params) {
   return data;
 }
 
-async function getCampaignInsights(adAccountId, isoDate) {
+async function getCampaignInsights(adAccountId, dateOrRange, options = {}) {
   const actId = normalizeAdAccountId(adAccountId);
   if (!actId) throw new Error("Ad Account ID không hợp lệ");
+
+  let since;
+  let until;
+  let daily = options.daily;
+  if (typeof dateOrRange === "string") {
+    since = until = dateOrRange;
+    if (daily === undefined) daily = true;
+  } else {
+    since = dateOrRange.since;
+    until = dateOrRange.until || dateOrRange.since;
+    if (daily === undefined) daily = since === until;
+  }
 
   const rows = [];
   let path = `/act_${actId}/insights`;
   let params = {
     level: "campaign",
-    fields: "campaign_id,campaign_name,spend,reach,impressions,clicks,actions,date_start",
-    time_increment: 1,
-    time_range: JSON.stringify({ since: isoDate, until: isoDate }),
+    fields: "campaign_id,campaign_name,spend,reach,impressions,clicks,actions,date_start,date_stop",
+    time_range: JSON.stringify({ since, until }),
     limit: 100,
   };
+  if (daily) params.time_increment = 1;
 
   for (let page = 0; page < 20; page += 1) {
     const data = await graphGet(path, params);
@@ -69,7 +81,9 @@ async function getCampaignInsights(adAccountId, isoDate) {
         reach: Math.round(Number(item.reach || item.impressions) || 0),
         clicks: Math.round(Number(item.clicks) || 0),
         results: sumResults(item.actions),
-        date: isoToDisplay(item.date_start || isoDate),
+        impressions: Math.round(Number(item.impressions) || 0),
+        date: isoToDisplay(item.date_start || since),
+        dateStop: isoToDisplay(item.date_stop || until),
         platform: "Facebook",
       });
     }

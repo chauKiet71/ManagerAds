@@ -44,6 +44,124 @@ function yesterdayIso() {
   return toIsoDate(yesterdayParts());
 }
 
+function addDays(p, n) {
+  const dt = new Date(Date.UTC(p.y, p.m - 1, p.d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return { d: dt.getUTCDate(), m: dt.getUTCMonth() + 1, y: dt.getUTCFullYear() };
+}
+
+function startOfWeekMonday(p) {
+  const dt = new Date(Date.UTC(p.y, p.m - 1, p.d));
+  const dow = dt.getUTCDay();
+  const offset = dow === 0 ? 6 : dow - 1;
+  return addDays(p, -offset);
+}
+
+function startOfMonth(p) {
+  return { d: 1, m: p.m, y: p.y };
+}
+
+function lastDayOfPrevMonth(p) {
+  return addDays(startOfMonth(p), -1);
+}
+
+function nowTimeLabel() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: VN_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type)?.value || "00";
+  return `${get("hour")}:${get("minute")}`;
+}
+
+const DATE_RANGE_PRESETS = {
+  today: { label: "Hôm nay" },
+  yesterday: { label: "Hôm qua" },
+  today_yday: { label: "Hôm nay và hôm qua" },
+  d7: { label: "7 ngày qua" },
+  d14: { label: "14 ngày qua" },
+  d28: { label: "28 ngày qua" },
+  d30: { label: "30 ngày qua" },
+  week: { label: "Tuần này" },
+  last_week: { label: "Tuần trước" },
+  month: { label: "Tháng này" },
+  last_month: { label: "Tháng trước" },
+};
+
+function resolveDateRange(key, custom) {
+  const today = todayParts();
+  if (key === "custom" && custom?.since && custom?.until) {
+    const display = `${isoToDisplay(custom.since)} – ${isoToDisplay(custom.until)}`;
+    return {
+      key: "custom",
+      label: "Tùy chọn",
+      since: custom.since,
+      until: custom.until,
+      display,
+    };
+  }
+  let sinceP;
+  let untilP = today;
+  switch (key) {
+    case "today":
+      sinceP = today;
+      break;
+    case "yesterday":
+      sinceP = yesterdayParts();
+      untilP = sinceP;
+      break;
+    case "today_yday":
+      sinceP = yesterdayParts();
+      break;
+    case "d7":
+      sinceP = addDays(today, -6);
+      break;
+    case "d14":
+      sinceP = addDays(today, -13);
+      break;
+    case "d28":
+      sinceP = addDays(today, -27);
+      break;
+    case "d30":
+      sinceP = addDays(today, -29);
+      break;
+    case "week":
+      sinceP = startOfWeekMonday(today);
+      break;
+    case "last_week": {
+      const thisMon = startOfWeekMonday(today);
+      sinceP = addDays(thisMon, -7);
+      untilP = addDays(thisMon, -1);
+      break;
+    }
+    case "month":
+      sinceP = startOfMonth(today);
+      break;
+    case "last_month": {
+      untilP = lastDayOfPrevMonth(today);
+      sinceP = startOfMonth(untilP);
+      break;
+    }
+    default:
+      sinceP = yesterdayParts();
+      untilP = sinceP;
+      key = "yesterday";
+  }
+  const since = toIsoDate(sinceP);
+  const until = toIsoDate(untilP);
+  const preset = DATE_RANGE_PRESETS[key];
+  const same = since === until;
+  return {
+    key,
+    label: preset?.label || `${isoToDisplay(since)} – ${isoToDisplay(until)}`,
+    since,
+    until,
+    display: same ? isoToDisplay(since) : `${isoToDisplay(since)} – ${isoToDisplay(until)}`,
+  };
+}
+
 function isoToDisplay(iso) {
   const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return null;
@@ -111,7 +229,11 @@ module.exports = {
   todayStr,
   yesterdayStr,
   yesterdayIso,
+  toIsoDate,
   isoToDisplay,
+  nowTimeLabel,
+  DATE_RANGE_PRESETS,
+  resolveDateRange,
   parseDate,
   normalizeDate,
   isSameOrBeforeToday,
