@@ -71,6 +71,7 @@ function nowClock() {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    hourCycle: "h23",
   }).formatToParts(new Date());
   const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
   let h = get("hour");

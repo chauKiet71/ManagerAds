@@ -20,6 +20,7 @@ const forms = require("./forms");
 const { syncYesterday, formatSyncResult } = require("../sync");
 const { replyInsights, loadCampaignInsights, formatDigestReport, splitTelegram } = require("../adsReport");
 const { resolveDateRange, formatReportTimes } = require("../utils");
+const { rememberReportTimes } = require("../cron");
 
 function isCmd(text, name) {
   if (!text) return false;
@@ -252,6 +253,7 @@ async function dispatchCallback(ctx) {
   if (data === "go:off-report-times") {
     try {
       await sheets.setReportTimes([]);
+      rememberReportTimes([]);
       return ctx.reply("Đã tắt gửi chỉ số tự động. /dat_gio_bao_cao để bật lại.", mainKeyboard);
     } catch (err) {
       return ctx.reply("Không lưu được cài đặt.");

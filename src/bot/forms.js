@@ -10,8 +10,11 @@ const {
   formatMoney,
   parseReportTimes,
   formatReportTimes,
+  nowClock,
 } = require("../utils");
 const { replyInsights } = require("../adsReport");
+const { rememberReportTimes, sendAdsDigest } = require("../cron");
+const tg = require("../telegram");
 const {
   statusKeyboard,
   customerPickKeyboard,
@@ -269,21 +272,33 @@ async function handleSetReportTimesText(ctx, form, text) {
   }
   const saved = await withSheet(ctx, () => sheets.setReportTimes(parsed.times));
   if (!saved.ok) return true;
+  rememberReportTimes(parsed.times);
   clearForm(ctx);
   if (!parsed.times.length) {
     await ctx.reply("Đã tắt gửi chỉ số tự động. Dùng /dat_gio_bao_cao để bật lại.", mainKeyboard);
     return true;
   }
+  const clock = nowClock();
+  const dueNow = parsed.times.includes(clock.label);
   await ctx.reply(
     [
       "✅ Đã lưu giờ gửi chỉ số (giờ VN)",
       formatReportTimes(parsed.times),
       "",
-      "Bot kiểm tra mỗi phút. Không cần restart.",
-      "Dùng /gui_bao_cao để gửi thử ngay.",
+      dueNow
+        ? `Đúng mốc ${clock.label} — đang gửi báo cáo...`
+        : `Giờ VN hiện tại: ${clock.label}. Bot sẽ gửi khi đến đúng mốc.`,
     ].join("\n"),
     mainKeyboard
   );
+  if (dueNow) {
+    try {
+      await sendAdsDigest({ sendMessage: tg.sendMessage }, { notifySkip: true });
+    } catch (err) {
+      console.error("Gửi báo cáo ngay sau khi đặt giờ:", err);
+      await ctx.reply(`Không gửi được báo cáo: ${err.message || err}`);
+    }
+  }
   return true;
 }
 

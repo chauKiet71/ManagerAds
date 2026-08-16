@@ -14,6 +14,9 @@ const { syncYesterday, formatSyncResult } = require("./sync");
 const { loadCampaignInsights, formatDigestReport, splitTelegram } = require("./adsReport");
 
 let lastDigestKey = "";
+let cachedTimes = null;
+let digestBot = null;
+let digestBusy = false;
 
 function notifyChatId() {
   return config.adminChatId;
@@ -86,17 +89,37 @@ async function sendAdsDigest(bot, { notifySkip = false } = {}) {
   return { ok: true };
 }
 
-async function tickAdsDigest(bot) {
+function rememberReportTimes(times) {
+  cachedTimes = Array.isArray(times) ? times : null;
+  lastDigestKey = "";
+}
+
+async function loadReportTimes() {
+  if (cachedTimes) return cachedTimes;
+  cachedTimes = await sheets.getReportTimes();
+  return cachedTimes;
+}
+
+async function tickAdsDigest(bot = digestBot) {
+  if (!bot || digestBusy) return;
   const clock = nowClock();
-  const times = await sheets.getReportTimes();
+  let times;
+  try {
+    times = await loadReportTimes();
+  } catch (err) {
+    console.error("Không đọc được giờ báo cáo ads:", err.message || err);
+    return;
+  }
   if (!times.includes(clock.label)) return;
   const key = `${toIsoDate(todayParts())}-${clock.label}`;
   if (lastDigestKey === key) return;
   lastDigestKey = key;
-  console.log("Đến giờ báo cáo ads", clock.label);
+  digestBusy = true;
+  console.log("Đến giờ báo cáo ads", clock.label, "mốc", times.join(","));
   try {
     await sendAdsDigest(bot, { notifySkip: true });
   } catch (err) {
+    lastDigestKey = "";
     console.error("Lỗi cron báo cáo ads:", err);
     const chatId = notifyChatId();
     if (chatId) {
@@ -104,6 +127,8 @@ async function tickAdsDigest(bot) {
         .sendMessage(chatId, `Lỗi báo cáo Facebook Ads lúc ${clock.label}: ${err.message || err}`)
         .catch(() => {});
     }
+  } finally {
+    digestBusy = false;
   }
 }
 
@@ -122,6 +147,7 @@ async function syncAdsAndNotify(bot) {
 }
 
 async function startCron(bot) {
+  digestBot = bot;
   const hour = Math.min(23, Math.max(0, config.notifyHour));
   const expr = `0 ${hour} * * *`;
   cron.schedule(
@@ -154,26 +180,29 @@ async function startCron(bot) {
   );
   console.log(`Cron sync ads: 15 7 * * * (${config.timezone})`);
 
-  cron.schedule(
-    "* * * * *",
-    async () => {
-      try {
-        await tickAdsDigest(bot);
-      } catch (err) {
-        console.error("Lỗi tick báo cáo ads:", err);
-      }
-    },
-    { timezone: config.timezone }
-  );
+  const runTick = () => {
+    tickAdsDigest(bot).catch((err) => console.error("Lỗi tick báo cáo ads:", err));
+  };
+  cron.schedule("* * * * *", runTick, { timezone: config.timezone });
+  setInterval(runTick, 15000);
+  setTimeout(runTick, 2000);
 
   try {
-    const times = await sheets.getReportTimes();
+    const times = await loadReportTimes();
+    const clock = nowClock();
     console.log(
-      `Cron báo cáo ads: mỗi phút kiểm tra giờ VN — mốc ${formatReportTimes(times)}`
+      `Báo cáo ads: giờ VN đang ${clock.label} — gửi lúc ${formatReportTimes(times)} (kiểm tra mỗi 15 giây)`
     );
   } catch (err) {
     console.warn("Chưa đọc được giờ báo cáo ads:", err.message || err);
   }
 }
 
-module.exports = { startCron, checkAndNotify, syncAdsAndNotify, sendAdsDigest, tickAdsDigest };
+module.exports = {
+  startCron,
+  checkAndNotify,
+  syncAdsAndNotify,
+  sendAdsDigest,
+  tickAdsDigest,
+  rememberReportTimes,
+};
