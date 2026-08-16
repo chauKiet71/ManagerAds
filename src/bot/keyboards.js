@@ -45,10 +45,31 @@ function listActionKeyboard(addAction) {
   };
 }
 
+function feeListKeyboard(fees) {
+  const rows = (fees || []).slice(0, 20).map((f, i) => [
+    { text: `✏️ ${i + 1}. ${f.customer}`.slice(0, 60), callback_data: `feepick:${i}` },
+  ]);
+  rows.push([
+    { text: "➕ Thêm", callback_data: "go:add-fee" },
+    { text: "✏️ Sửa", callback_data: "go:edit-fee" },
+  ]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
+function feePickKeyboard(fees) {
+  const rows = (fees || []).map((f, i) => [
+    { text: `${i + 1}. ${f.customer}`.slice(0, 60), callback_data: `feepick:${i}` },
+  ]);
+  rows.push([{ text: "Hủy", callback_data: "pick:cancel" }]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
 module.exports = {
   mainKeyboard,
   customerFilterKeyboard,
   statusKeyboard,
   customerPickKeyboard,
   listActionKeyboard,
+  feeListKeyboard,
+  feePickKeyboard,
 };

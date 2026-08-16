@@ -58,7 +58,8 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 | `/ngan_sach` | Danh sách ngân sách + ngày hết NS |
 | `/them_ngan_sach` | Thêm lần chuyển khoản |
 | `/thu_phi_dv` | Danh sách phí DV + ngày thu |
-| `/them_thu_phi` | Thêm / cập nhật phí và ngày thu |
+| `/them_thu_phi` | Thêm phí và ngày thu |
+| `/sua_thu_phi` | Sửa phí hoặc ngày thu |
 | `/huy` | Hủy thao tác đang nhập |
 
 Đến **ngày hết ngân sách** hoặc **ngày thu phí**, bot nhắn cho admin (và các ngày đã quá hạn chưa nhắc, nếu bot từng tắt).

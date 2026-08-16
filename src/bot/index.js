@@ -1,7 +1,7 @@
 const config = require("../config");
 const sheets = require("../sheets");
 const tg = require("../telegram");
-const { customerFilterKeyboard, listActionKeyboard, mainKeyboard } = require("./keyboards");
+const { customerFilterKeyboard, listActionKeyboard, mainKeyboard, feeListKeyboard } = require("./keyboards");
 const { formatCustomerList, formatBudgetList, formatFeeList, helpText } = require("./format");
 const forms = require("./forms");
 
@@ -91,6 +91,7 @@ async function dispatchText(ctx) {
   }
   if (isCmd(text, "them_ngan_sach")) return forms.startAddBudget(ctx);
   if (isCmd(text, "them_thu_phi")) return forms.startAddFee(ctx);
+  if (isCmd(text, "sua_thu_phi")) return forms.startEditFee(ctx);
   if (isCmd(text, "doi_trang_thai")) return forms.startChangeStatus(ctx);
 
   if (isCmd(text, "khach_hang") || text === "👥 Khách hàng") {
@@ -114,7 +115,7 @@ async function dispatchText(ctx) {
     forms.clearForm(ctx);
     try {
       const list = await sheets.listFees();
-      return ctx.reply(formatFeeList(list), listActionKeyboard("go:add-fee"));
+      return ctx.reply(formatFeeList(list), feeListKeyboard(list));
     } catch (err) {
       console.error(err);
       return ctx.reply("Không đọc được Google Sheet.");
@@ -137,6 +138,7 @@ async function dispatchCallback(ctx) {
   if (data === "kh:all") return showCustomers(ctx);
   if (data === "go:add-budget") return forms.startAddBudget(ctx);
   if (data === "go:add-fee") return forms.startAddFee(ctx);
+  if (data === "go:edit-fee") return forms.startEditFee(ctx);
 }
 
 async function runPolling() {
@@ -151,7 +153,8 @@ async function runPolling() {
     { command: "ngan_sach", description: "Ngân sách" },
     { command: "them_ngan_sach", description: "Thêm ngân sách" },
     { command: "thu_phi_dv", description: "Thu phí dịch vụ" },
-    { command: "them_thu_phi", description: "Thêm ngày thu phí" },
+    { command: "them_thu_phi", description: "Thêm thu phí DV" },
+    { command: "sua_thu_phi", description: "Sửa thu phí DV" },
     { command: "doi_trang_thai", description: "Đổi trạng thái KH" },
     { command: "huy", description: "Hủy thao tác" },
   ]);

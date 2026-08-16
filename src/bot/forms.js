@@ -1,6 +1,6 @@
 const sheets = require("../sheets");
-const { todayStr, normalizeDate, parseMoney, escapeHtml } = require("../utils");
-const { statusKeyboard, customerPickKeyboard, mainKeyboard } = require("./keyboards");
+const { todayStr, normalizeDate, parseMoney, escapeHtml, formatMoney } = require("../utils");
+const { statusKeyboard, customerPickKeyboard, mainKeyboard, feePickKeyboard } = require("./keyboards");
 
 const STATUS_FROM_CB = {
   active: sheets.STATUS.ACTIVE,
@@ -64,7 +64,55 @@ async function startAddBudget(ctx) {
 
 async function startAddFee(ctx) {
   setForm(ctx, { type: "add-fee", step: "pick", data: {} });
-  return askPick(ctx, "Thêm ngày thu phí DV");
+  return askPick(ctx, "Thêm thu phí DV");
+}
+
+function isKeep(text) {
+  const t = String(text || "").trim().toLowerCase();
+  return t === "giu" || t === "giữ" || t === "-" || t === ".";
+}
+
+function feeSummary(fee) {
+  return [
+    `Khách hàng: ${fee.customer}`,
+    `Phí dịch vụ: ${fee.amount ? formatMoney(fee.amount) : "—"}`,
+    `Ngày thu phí: ${fee.feeDate || "—"}`,
+  ].join("\n");
+}
+
+async function startEditFee(ctx) {
+  const result = await withSheet(ctx, () => sheets.listFees());
+  if (!result.ok) return;
+  if (!result.value.length) {
+    clearForm(ctx);
+    await ctx.reply("Chưa có dữ liệu thu phí. Dùng /them_thu_phi trước.", mainKeyboard);
+    return;
+  }
+  setForm(ctx, { type: "edit-fee", step: "pick", data: {}, fees: result.value });
+  await ctx.reply(
+    "Sửa thu phí dịch vụ\n\nChọn khách hàng:\n\nGửi /huy để hủy.",
+    feePickKeyboard(result.value)
+  );
+}
+
+async function beginEditFee(ctx, fee) {
+  const form = getForm(ctx);
+  form.data = {
+    customer: fee.customer,
+    amount: fee.amount,
+    feeDate: fee.feeDate,
+  };
+  form.step = "amount";
+  await ctx.reply(
+    [
+      "Đang sửa thu phí DV",
+      feeSummary(fee),
+      "",
+      "Nhập <b>phí dịch vụ mới</b> (ví dụ 500000)",
+      'Hoặc gửi <b>giu</b> để giữ nguyên số tiền.',
+    ].join("\n"),
+    { parse_mode: "HTML" }
+  );
 }
 
 async function startChangeStatus(ctx) {
@@ -103,6 +151,7 @@ async function handleFormText(ctx) {
   if (form.type === "add-customer") return handleAddCustomerText(ctx, form, text);
   if (form.type === "add-budget") return handleAddBudgetText(ctx, form, text);
   if (form.type === "add-fee") return handleAddFeeText(ctx, form, text);
+  if (form.type === "edit-fee") return handleEditFeeText(ctx, form, text);
   if (form.type === "change-status") {
     await ctx.reply(
       form.step === "pick"
@@ -249,6 +298,71 @@ async function handleAddFeeText(ctx, form, text) {
   return true;
 }
 
+async function handleEditFeeText(ctx, form, text) {
+  if (form.step === "pick") {
+    await ctx.reply("Vui lòng chọn khách hàng bằng nút bên trên, hoặc /huy.");
+    return true;
+  }
+  if (form.step === "amount") {
+    if (isKeep(text)) {
+      form.data.amount = parseMoney(String(form.data.amount)) || form.data.amount;
+    } else {
+      const amount = parseMoney(text);
+      if (!amount) {
+        await ctx.reply('Phí không hợp lệ. Nhập số, ví dụ 500000 — hoặc gửi "giu" để giữ nguyên.');
+        return true;
+      }
+      form.data.amount = amount;
+    }
+    form.step = "date";
+    await ctx.reply(
+      [
+        `Phí sẽ lưu: <b>${form.data.amount ? formatMoney(form.data.amount) : "—"}</b>`,
+        "",
+        "Nhập <b>ngày thu phí mới</b> (dd/mm/yyyy)",
+        'Hoặc gửi <b>giu</b> để giữ nguyên ngày.',
+      ].join("\n"),
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+  if (form.step === "date") {
+    let date = form.data.feeDate;
+    if (!isKeep(text)) {
+      date = normalizeDate(text);
+      if (!date) {
+        await ctx.reply('Ngày không hợp lệ. Ví dụ 20/8/2026 — hoặc gửi "giu" để giữ nguyên.');
+        return true;
+      }
+    }
+    if (!date) {
+      await ctx.reply("Chưa có ngày thu phí. Nhập ngày, ví dụ 20/8/2026");
+      return true;
+    }
+    const saved = await withSheet(ctx, () =>
+      sheets.upsertFee({
+        customer: form.data.customer,
+        amount: form.data.amount,
+        feeDate: date,
+      })
+    );
+    if (!saved.ok) return true;
+    clearForm(ctx);
+    await ctx.reply(
+      [
+        "✅ Đã cập nhật thu phí dịch vụ",
+        "",
+        `Khách hàng: ${saved.value.customer}`,
+        `Phí dịch vụ: ${saved.value.amount ? formatMoney(saved.value.amount) : "—"}`,
+        `Ngày thu phí dịch vụ: ${saved.value.feeDate}`,
+      ].join("\n"),
+      mainKeyboard
+    );
+    return true;
+  }
+  return true;
+}
+
 async function handleFormAction(ctx) {
   const data = ctx.callbackQuery?.data || "";
   const form = getForm(ctx);
@@ -259,6 +373,29 @@ async function handleFormAction(ctx) {
       await ctx.editMessageReplyMarkup();
     } catch (_) {}
     await cancelForm(ctx);
+    return true;
+  }
+
+  if (data.startsWith("feepick:")) {
+    const idx = Number(data.slice(8));
+    await ctx.answerCbQuery();
+    let form = getForm(ctx);
+    if (!form || form.type !== "edit-fee") {
+      const result = await withSheet(ctx, () => sheets.listFees());
+      if (!result.ok) return true;
+      setForm(ctx, { type: "edit-fee", step: "pick", data: {}, fees: result.value });
+      form = getForm(ctx);
+    }
+    const fee = (form.fees || [])[idx];
+    if (!fee) {
+      await ctx.reply("Không tìm thấy dòng thu phí.");
+      clearForm(ctx);
+      return true;
+    }
+    try {
+      await ctx.editMessageReplyMarkup();
+    } catch (_) {}
+    await beginEditFee(ctx, fee);
     return true;
   }
 
@@ -384,6 +521,7 @@ module.exports = {
   startAddCustomer,
   startAddBudget,
   startAddFee,
+  startEditFee,
   startChangeStatus,
   handleFormText,
   handleFormAction,
