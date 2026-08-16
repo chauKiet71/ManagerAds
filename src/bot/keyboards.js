@@ -3,6 +3,7 @@ const mainKeyboard = {
     keyboard: [
       [{ text: "➕ Thêm khách hàng" }, { text: "👥 Khách hàng" }],
       [{ text: "💰 Ngân sách" }, { text: "🧾 Thu phí DV" }],
+      [{ text: "📊 Chiến dịch" }],
     ],
     resize_keyboard: true,
   },
@@ -56,6 +57,41 @@ function feeListKeyboard(fees) {
   return { reply_markup: { inline_keyboard: rows } };
 }
 
+const platformKeyboard = {
+  reply_markup: {
+    inline_keyboard: [
+      [
+        { text: "Facebook", callback_data: "plat:Facebook" },
+        { text: "Google", callback_data: "plat:Google" },
+      ],
+      [
+        { text: "TikTok", callback_data: "plat:TikTok" },
+        { text: "Khác", callback_data: "plat:Khác" },
+      ],
+    ],
+  },
+};
+
+function campaignListKeyboard(customers) {
+  const rows = (customers || []).slice(0, 20).map((c, i) => [
+    { text: c.name.slice(0, 60), callback_data: `cview:${i}` },
+  ]);
+  rows.unshift([{ text: "Tất cả chiến dịch", callback_data: "cview:all" }]);
+  rows.push([{ text: "➕ Nhập thông số", callback_data: "go:add-campaign" }]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
+function campaignPickKeyboard(campaigns) {
+  const rows = (campaigns || []).map((c, i) => [
+    {
+      text: `${i + 1}. ${c.customer} — ${c.name}`.slice(0, 60),
+      callback_data: `cdpick:${i}`,
+    },
+  ]);
+  rows.push([{ text: "Hủy", callback_data: "pick:cancel" }]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
 function feePickKeyboard(fees) {
   const rows = (fees || []).map((f, i) => [
     { text: `${i + 1}. ${f.customer}`.slice(0, 60), callback_data: `feepick:${i}` },
@@ -72,4 +108,7 @@ module.exports = {
   listActionKeyboard,
   feeListKeyboard,
   feePickKeyboard,
+  platformKeyboard,
+  campaignListKeyboard,
+  campaignPickKeyboard,
 };

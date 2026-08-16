@@ -44,4 +44,6 @@ module.exports = {
   notifyHour: Number(process.env.NOTIFY_HOUR || 8),
   timezone: process.env.TZ || "Asia/Ho_Chi_Minh",
   port: process.env.PORT ? Number(process.env.PORT) : 0,
+  metaAccessToken: process.env.META_ACCESS_TOKEN || "",
+  metaApiVersion: process.env.META_API_VERSION || "v21.0",
 };

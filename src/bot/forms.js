@@ -1,6 +1,14 @@
 const sheets = require("../sheets");
+const meta = require("../meta");
 const { todayStr, normalizeDate, parseMoney, escapeHtml, formatMoney } = require("../utils");
-const { statusKeyboard, customerPickKeyboard, mainKeyboard, feePickKeyboard } = require("./keyboards");
+const {
+  statusKeyboard,
+  customerPickKeyboard,
+  mainKeyboard,
+  feePickKeyboard,
+  platformKeyboard,
+  campaignPickKeyboard,
+} = require("./keyboards");
 
 const STATUS_FROM_CB = {
   active: sheets.STATUS.ACTIVE,
@@ -115,9 +123,46 @@ async function beginEditFee(ctx, fee) {
   );
 }
 
+function parseCount(str) {
+  const n = Number(String(str).replace(/[^\d]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+async function startAddCampaign(ctx) {
+  setForm(ctx, { type: "add-campaign", step: "pick", data: {} });
+  return askPick(ctx, "Nhập thông số chiến dịch");
+}
+
+async function startEditCampaign(ctx) {
+  const result = await withSheet(ctx, () => sheets.listCampaigns());
+  if (!result.ok) return;
+  if (!result.value.length) {
+    clearForm(ctx);
+    await ctx.reply("Chưa có chiến dịch. Dùng /them_chien_dich trước.", mainKeyboard);
+    return;
+  }
+  setForm(ctx, { type: "edit-campaign", step: "pick", data: {}, campaigns: result.value });
+  await ctx.reply(
+    "Sửa chiến dịch\n\nChọn chiến dịch:\n\nGửi /huy để hủy.",
+    campaignPickKeyboard(result.value)
+  );
+}
+
+function askCampaignName(ctx, prefix) {
+  return ctx.reply(
+    `${prefix}\n\nNhập <b>tên chiến dịch</b>:\nHoặc gửi <b>giu</b> nếu đang sửa và muốn giữ nguyên.`,
+    { parse_mode: "HTML" }
+  );
+}
+
 async function startChangeStatus(ctx) {
   setForm(ctx, { type: "change-status", step: "pick", data: {} });
   return askPick(ctx, "Đổi trạng thái");
+}
+
+async function startLinkAdAccount(ctx) {
+  setForm(ctx, { type: "link-ad-account", step: "pick", data: {} });
+  return askPick(ctx, "Gán Ad Account Facebook");
 }
 
 async function askPick(ctx, title) {
@@ -152,6 +197,9 @@ async function handleFormText(ctx) {
   if (form.type === "add-budget") return handleAddBudgetText(ctx, form, text);
   if (form.type === "add-fee") return handleAddFeeText(ctx, form, text);
   if (form.type === "edit-fee") return handleEditFeeText(ctx, form, text);
+  if (form.type === "add-campaign") return handleAddCampaignText(ctx, form, text);
+  if (form.type === "edit-campaign") return handleEditCampaignText(ctx, form, text);
+  if (form.type === "link-ad-account") return handleLinkAdAccountText(ctx, form, text);
   if (form.type === "change-status") {
     await ctx.reply(
       form.step === "pick"
@@ -161,6 +209,40 @@ async function handleFormText(ctx) {
     return true;
   }
   return false;
+}
+
+async function handleLinkAdAccountText(ctx, form, text) {
+  if (form.step === "pick") {
+    await ctx.reply("Vui lòng chọn khách hàng bằng nút bên trên, hoặc /huy.");
+    return true;
+  }
+  const adAccountId = meta.normalizeAdAccountId(text);
+  if (!adAccountId) {
+    await ctx.reply(
+      "Ad Account ID không hợp lệ. Dán số từ Ads Manager, ví dụ act_123456789 hoặc 123456789."
+    );
+    return true;
+  }
+  const saved = await withSheet(ctx, () =>
+    sheets.upsertAdAccount({
+      customer: form.data.customer,
+      adAccountId,
+    })
+  );
+  if (!saved.ok) return true;
+  clearForm(ctx);
+  await ctx.reply(
+    [
+      "✅ Đã gán Ad Account",
+      "",
+      `Khách hàng: ${saved.value.customer}`,
+      `Ad Account ID: act_${saved.value.adAccountId}`,
+      "",
+      "Dùng /dong_bo_ads để kéo số hôm qua.",
+    ].join("\n"),
+    mainKeyboard
+  );
+  return true;
 }
 
 async function handleAddCustomerText(ctx, form, text) {
@@ -363,6 +445,239 @@ async function handleEditFeeText(ctx, form, text) {
   return true;
 }
 
+async function saveCampaign(ctx, form, isEdit) {
+  const data = {
+    customer: form.data.customer,
+    name: form.data.name,
+    platform: form.data.platform,
+    spend: form.data.spend,
+    reach: form.data.reach,
+    clicks: form.data.clicks,
+    results: form.data.results,
+    date: form.data.date,
+  };
+  const saved = await withSheet(ctx, () =>
+    isEdit ? sheets.updateCampaign(form.data.id, data) : sheets.addCampaign(data)
+  );
+  if (!saved.ok) return true;
+  if (isEdit && !saved.value) {
+    clearForm(ctx);
+    await ctx.reply("Không tìm thấy chiến dịch để sửa.", mainKeyboard);
+    return true;
+  }
+  clearForm(ctx);
+  await ctx.reply(
+    [
+      isEdit ? "✅ Đã cập nhật chiến dịch" : "✅ Đã lưu thông số chiến dịch",
+      "",
+      `Khách hàng: ${data.customer}`,
+      `Chiến dịch: ${data.name}`,
+      `Nền tảng: ${data.platform}`,
+      `Chi tiêu: ${data.spend ? formatMoney(data.spend) : "—"}`,
+      `Tiếp cận: ${data.reach ?? "—"}`,
+      `Click: ${data.clicks ?? "—"}`,
+      `Kết quả: ${data.results ?? "—"}`,
+      `Ngày: ${data.date}`,
+    ].join("\n"),
+    mainKeyboard
+  );
+  return true;
+}
+
+async function handleAddCampaignText(ctx, form, text) {
+  if (form.step === "pick") {
+    await ctx.reply("Vui lòng chọn khách hàng bằng nút bên trên, hoặc /huy.");
+    return true;
+  }
+  if (form.step === "name") {
+    if (!text) {
+      await ctx.reply("Nhập tên chiến dịch.");
+      return true;
+    }
+    form.data.name = text;
+    form.step = "platform";
+    await ctx.reply("Chọn <b>nền tảng</b>:", { parse_mode: "HTML", ...platformKeyboard });
+    return true;
+  }
+  if (form.step === "platform") {
+    await ctx.reply("Vui lòng chọn nền tảng bằng nút bên trên.");
+    return true;
+  }
+  if (form.step === "spend") {
+    const amount = parseMoney(text);
+    if (!amount) {
+      await ctx.reply("Chi tiêu không hợp lệ. Nhập số, ví dụ: 500000");
+      return true;
+    }
+    form.data.spend = amount;
+    form.step = "reach";
+    await ctx.reply("Nhập <b>tiếp cận</b> (số người / impression), ví dụ 12000:", {
+      parse_mode: "HTML",
+    });
+    return true;
+  }
+  if (form.step === "reach") {
+    const n = parseCount(text);
+    if (n === null) {
+      await ctx.reply("Số tiếp cận không hợp lệ. Nhập số, ví dụ: 12000");
+      return true;
+    }
+    form.data.reach = n;
+    form.step = "clicks";
+    await ctx.reply("Nhập số <b>click</b>, ví dụ 340:", { parse_mode: "HTML" });
+    return true;
+  }
+  if (form.step === "clicks") {
+    const n = parseCount(text);
+    if (n === null) {
+      await ctx.reply("Số click không hợp lệ. Nhập số, ví dụ: 340");
+      return true;
+    }
+    form.data.clicks = n;
+    form.step = "results";
+    await ctx.reply("Nhập số <b>kết quả</b> (tin nhắn / lead / đơn...), ví dụ 28:", {
+      parse_mode: "HTML",
+    });
+    return true;
+  }
+  if (form.step === "results") {
+    const n = parseCount(text);
+    if (n === null) {
+      await ctx.reply("Số kết quả không hợp lệ. Nhập số, ví dụ: 28");
+      return true;
+    }
+    form.data.results = n;
+    form.step = "date";
+    await ctx.reply(
+      `Nhập <b>ngày</b> của số liệu (dd/mm/yyyy)\nHoặc gửi "hom nay" — hôm nay là ${todayStr()}`,
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+  if (form.step === "date") {
+    const raw = text.toLowerCase();
+    const date = raw === "hom nay" || raw === "hôm nay" ? todayStr() : normalizeDate(text);
+    if (!date) {
+      await ctx.reply("Ngày không hợp lệ. Ví dụ: 16/8/2026 hoặc hom nay");
+      return true;
+    }
+    form.data.date = date;
+    return saveCampaign(ctx, form, false);
+  }
+  return true;
+}
+
+async function handleEditCampaignText(ctx, form, text) {
+  if (form.step === "pick") {
+    await ctx.reply("Vui lòng chọn chiến dịch bằng nút bên trên, hoặc /huy.");
+    return true;
+  }
+  if (form.step === "name") {
+    if (!isKeep(text)) {
+      if (!text) {
+        await ctx.reply("Nhập tên chiến dịch hoặc gửi giu.");
+        return true;
+      }
+      form.data.name = text;
+    }
+    form.step = "platform";
+    await ctx.reply(
+      `Nền tảng hiện tại: <b>${escapeHtml(form.data.platform || "—")}</b>\nChọn nền tảng mới, hoặc gửi <b>giu</b>.`,
+      { parse_mode: "HTML", ...platformKeyboard }
+    );
+    return true;
+  }
+  if (form.step === "platform") {
+    if (isKeep(text)) {
+      form.step = "spend";
+      await ctx.reply(
+        `Chi tiêu hiện tại: ${form.data.spend ? formatMoney(form.data.spend) : "—"}\nNhập chi tiêu mới hoặc gửi <b>giu</b>.`,
+        { parse_mode: "HTML" }
+      );
+      return true;
+    }
+    await ctx.reply("Chọn nền tảng bằng nút, hoặc gửi giu.");
+    return true;
+  }
+  if (form.step === "spend") {
+    if (!isKeep(text)) {
+      const amount = parseMoney(text);
+      if (!amount) {
+        await ctx.reply("Chi tiêu không hợp lệ. Nhập số hoặc giu.");
+        return true;
+      }
+      form.data.spend = amount;
+    }
+    form.step = "reach";
+    await ctx.reply(
+      `Tiếp cận hiện tại: ${form.data.reach ?? "—"}\nNhập số mới hoặc gửi <b>giu</b>.`,
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+  if (form.step === "reach") {
+    if (!isKeep(text)) {
+      const n = parseCount(text);
+      if (n === null) {
+        await ctx.reply("Số không hợp lệ. Nhập số hoặc giu.");
+        return true;
+      }
+      form.data.reach = n;
+    }
+    form.step = "clicks";
+    await ctx.reply(
+      `Click hiện tại: ${form.data.clicks ?? "—"}\nNhập số mới hoặc gửi <b>giu</b>.`,
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+  if (form.step === "clicks") {
+    if (!isKeep(text)) {
+      const n = parseCount(text);
+      if (n === null) {
+        await ctx.reply("Số không hợp lệ. Nhập số hoặc giu.");
+        return true;
+      }
+      form.data.clicks = n;
+    }
+    form.step = "results";
+    await ctx.reply(
+      `Kết quả hiện tại: ${form.data.results ?? "—"}\nNhập số mới hoặc gửi <b>giu</b>.`,
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+  if (form.step === "results") {
+    if (!isKeep(text)) {
+      const n = parseCount(text);
+      if (n === null) {
+        await ctx.reply("Số không hợp lệ. Nhập số hoặc giu.");
+        return true;
+      }
+      form.data.results = n;
+    }
+    form.step = "date";
+    await ctx.reply(
+      `Ngày hiện tại: ${form.data.date || "—"}\nNhập ngày mới (dd/mm/yyyy), hom nay, hoặc <b>giu</b>.`,
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+  if (form.step === "date") {
+    if (!isKeep(text)) {
+      const raw = text.toLowerCase();
+      const date = raw === "hom nay" || raw === "hôm nay" ? todayStr() : normalizeDate(text);
+      if (!date) {
+        await ctx.reply("Ngày không hợp lệ. Ví dụ 16/8/2026, hom nay, hoặc giu.");
+        return true;
+      }
+      form.data.date = date;
+    }
+    return saveCampaign(ctx, form, true);
+  }
+  return true;
+}
+
 async function handleFormAction(ctx) {
   const data = ctx.callbackQuery?.data || "";
   const form = getForm(ctx);
@@ -373,6 +688,68 @@ async function handleFormAction(ctx) {
       await ctx.editMessageReplyMarkup();
     } catch (_) {}
     await cancelForm(ctx);
+    return true;
+  }
+
+  if (data.startsWith("cdpick:")) {
+    const idx = Number(data.slice(7));
+    await ctx.answerCbQuery();
+    const form = getForm(ctx);
+    const camp = (form?.campaigns || [])[idx];
+    if (!form || form.type !== "edit-campaign" || !camp) {
+      await ctx.reply("Phiên sửa đã hết. Thử lại /sua_chien_dich.");
+      clearForm(ctx);
+      return true;
+    }
+    try {
+      await ctx.editMessageReplyMarkup();
+    } catch (_) {}
+    form.data = {
+      id: camp.id,
+      customer: camp.customer,
+      name: camp.name,
+      platform: camp.platform,
+      spend: camp.spend,
+      reach: camp.reach,
+      clicks: camp.clicks,
+      results: camp.results,
+      date: camp.date,
+    };
+    form.step = "name";
+    await ctx.reply(
+      [
+        "Đang sửa chiến dịch",
+        `Khách hàng: ${camp.customer}`,
+        `Tên hiện tại: ${camp.name || "—"}`,
+        "",
+        "Nhập <b>tên chiến dịch mới</b> hoặc gửi <b>giu</b>.",
+      ].join("\n"),
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+
+  if (data.startsWith("plat:")) {
+    await ctx.answerCbQuery();
+    const form = getForm(ctx);
+    if (!form || (form.type !== "add-campaign" && form.type !== "edit-campaign")) {
+      await ctx.reply("Phiên nhập liệu đã hết.");
+      return true;
+    }
+    if (form.step !== "platform") {
+      await ctx.reply("Không ở bước chọn nền tảng.");
+      return true;
+    }
+    form.data.platform = data.slice(5);
+    try {
+      await ctx.editMessageReplyMarkup();
+    } catch (_) {}
+    form.step = "spend";
+    const hint =
+      form.type === "edit-campaign"
+        ? `Chi tiêu hiện tại: ${form.data.spend ? formatMoney(form.data.spend) : "—"}\nNhập chi tiêu mới hoặc gửi <b>giu</b>.`
+        : "Nhập <b>chi tiêu</b> (ví dụ 500000):";
+    await ctx.reply(hint, { parse_mode: "HTML" });
     return true;
   }
 
@@ -433,12 +810,35 @@ async function handleFormAction(ctx) {
       );
       return true;
     }
+    if (form.type === "add-campaign") {
+      form.data.customer = customer.name;
+      form.step = "name";
+      await ctx.reply(
+        `Khách hàng: <b>${escapeHtml(customer.name)}</b>\n\nNhập <b>tên chiến dịch</b>:`,
+        { parse_mode: "HTML" }
+      );
+      return true;
+    }
     if (form.type === "change-status") {
       form.data.customer = customer;
       form.step = "status";
       await ctx.reply(
         `Khách hàng: <b>${escapeHtml(customer.name)}</b>\nTrạng thái hiện tại: ${customer.status}\n\nChọn trạng thái mới:`,
         { parse_mode: "HTML", ...statusKeyboard }
+      );
+      return true;
+    }
+    if (form.type === "link-ad-account") {
+      form.data.customer = customer.name;
+      form.step = "account";
+      await ctx.reply(
+        [
+          `Khách hàng: <b>${escapeHtml(customer.name)}</b>`,
+          "",
+          "Nhập <b>Ad Account ID</b> (từ URL Ads Manager: <code>act=123456789</code>).",
+          "Ví dụ: <code>act_123456789</code> hoặc <code>123456789</code>",
+        ].join("\n"),
+        { parse_mode: "HTML" }
       );
       return true;
     }
@@ -522,7 +922,10 @@ module.exports = {
   startAddBudget,
   startAddFee,
   startEditFee,
+  startAddCampaign,
+  startEditCampaign,
   startChangeStatus,
+  startLinkAdAccount,
   handleFormText,
   handleFormAction,
 };

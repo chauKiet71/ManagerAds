@@ -16,7 +16,7 @@ Bot Node.js: thêm/xem khách hàng, ngân sách, ngày thu phí dịch vụ. D�
    `https://docs.google.com/spreadsheets/d/GOOGLE_SHEET_ID/edit`
 5. **Share** sheet cho email service account (quyền Editor), dạng `xxx@xxx.iam.gserviceaccount.com`.
 
-Bot tự tạo 3 tab khi chạy lần đầu: `KhachHang`, `NganSach`, `ThuPhiDV`.
+Bot tự tạo tab khi chạy lần đầu: `KhachHang`, `NganSach`, `ThuPhiDV`, `ChienDich`, `TaiKhoanAds`.
 
 ## 3. Cấu hình
 
@@ -29,7 +29,11 @@ copy .env.example .env
 - `GOOGLE_CREDENTIALS_PATH=./credentials.json`
 - hoặc `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY` (giữ `\n` trong private key)
 
-`NOTIFY_HOUR=8` — giờ gửi nhắc (múi giờ VN).
+`NOTIFY_HOUR=8` — giờ gửi nhắc hết ngân sách / thu phí (múi giờ VN).
+
+`META_ACCESS_TOKEN` — token System User Facebook (quyền `ads_read`). Không bắt buộc lúc khởi động; thiếu thì `/dong_bo_ads` và cron 7:15 không kéo được số.
+
+`META_API_VERSION` — mặc định `v21.0`.
 
 ## 4. Chạy
 
@@ -60,9 +64,27 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 | `/thu_phi_dv` | Danh sách phí DV + ngày thu |
 | `/them_thu_phi` | Thêm phí và ngày thu |
 | `/sua_thu_phi` | Sửa phí hoặc ngày thu |
+| `/chien_dich` | Xem thông số chiến dịch ads |
+| `/gan_ad_account` | Gán Ad Account Facebook cho một khách |
+| `/dong_bo_ads` | Kéo số **hôm qua** từ Marketing API vào tab ChienDich |
+| `/them_chien_dich` | Nhập chi tiêu, tiếp cận, click, kết quả |
+| `/sua_chien_dich` | Sửa thông số chiến dịch |
 | `/huy` | Hủy thao tác đang nhập |
 
 Đến **ngày hết ngân sách** hoặc **ngày thu phí**, bot nhắn cho admin (và các ngày đã quá hạn chưa nhắc, nếu bot từng tắt).
+
+Mỗi sáng **7:15** (giờ VN) bot tự kéo số Facebook Ads hôm qua và gửi tóm tắt cho admin.
+
+## Facebook Ads (kéo số tự động)
+
+Bot **không đăng nhập Ads Manager**. Một token Business Manager dùng chung, mỗi khách map với Ad Account ID.
+
+1. Trong [Meta Business Suite](https://business.facebook.com) → **Cài đặt doanh nghiệp** → **Người dùng hệ thống** (System User): tạo user, gán quyền **Quảng cáo** trên các Ad Account của khách, tạo token quyền `ads_read`.
+2. Copy **Ad Account ID** từng khách (URL Ads Manager: `act=123456789` hoặc `act_123456789`).
+3. Đưa token vào `META_ACCESS_TOKEN` (file `.env` local và Railway Variables). **Không** ghi token vào Google Sheet.
+4. Trong Telegram: `/gan_ad_account` cho từng khách, rồi `/dong_bo_ads` lần đầu để kiểm tra token.
+
+Token System User không hết hạn nếu không bị thu hồi. Số kéo về (level = campaign, mặc định hôm qua): tên, chi tiêu, tiếp cận, click, kết quả (tin nhắn / lead / purchase). Tab `ChienDich` upsert theo `Campaign ID + Ngày` nên không nhân dòng.
 
 ## 5. Deploy lên Railway
 
@@ -81,6 +103,8 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 | `GOOGLE_CREDENTIALS_JSON` | **cả nội dung** file `credentials.json` (một dòng JSON) |
 | `TZ` | `Asia/Ho_Chi_Minh` |
 | `NOTIFY_HOUR` | `8` |
+| `META_ACCESS_TOKEN` | token System User (`ads_read`) |
+| `META_API_VERSION` | `v21.0` (không bắt buộc) |
 
 `GOOGLE_CREDENTIALS_JSON`: mở `credentials.json`, copy toàn bộ từ `{` đến `}`, dán vào Railway. Không upload file.
 

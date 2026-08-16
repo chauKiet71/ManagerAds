@@ -2,6 +2,7 @@ const cron = require("node-cron");
 const sheets = require("./sheets");
 const config = require("./config");
 const { isSameOrBeforeToday, formatMoney } = require("./utils");
+const { syncYesterday, formatSyncResult } = require("./sync");
 
 function notifyChatId() {
   return config.adminChatId;
@@ -49,6 +50,20 @@ async function checkAndNotify(bot) {
   }
 }
 
+async function syncAdsAndNotify(bot) {
+  const chatId = notifyChatId();
+  if (!config.metaAccessToken) {
+    console.warn("Bỏ qua sync ads: chưa có META_ACCESS_TOKEN");
+    return;
+  }
+  const result = await syncYesterday();
+  const text = formatSyncResult(result);
+  console.log("Sync ads:", text.replace(/\n/g, " | "));
+  if (chatId) {
+    await bot.sendMessage(chatId, text);
+  }
+}
+
 function startCron(bot) {
   const hour = Math.min(23, Math.max(0, config.notifyHour));
   const expr = `0 ${hour} * * *`;
@@ -64,6 +79,23 @@ function startCron(bot) {
     { timezone: config.timezone }
   );
   console.log(`Cron thông báo: ${expr} (${config.timezone})`);
+
+  cron.schedule(
+    "15 7 * * *",
+    async () => {
+      try {
+        await syncAdsAndNotify(bot);
+      } catch (err) {
+        console.error("Lỗi cron sync ads:", err);
+        const chatId = notifyChatId();
+        if (chatId) {
+          await bot.sendMessage(chatId, `Lỗi kéo số Facebook Ads: ${err.message || err}`).catch(() => {});
+        }
+      }
+    },
+    { timezone: config.timezone }
+  );
+  console.log(`Cron sync ads: 15 7 * * * (${config.timezone})`);
 }
 
-module.exports = { startCron, checkAndNotify };
+module.exports = { startCron, checkAndNotify, syncAdsAndNotify };

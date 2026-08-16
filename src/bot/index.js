@@ -1,9 +1,22 @@
 const config = require("../config");
 const sheets = require("../sheets");
 const tg = require("../telegram");
-const { customerFilterKeyboard, listActionKeyboard, mainKeyboard, feeListKeyboard } = require("./keyboards");
-const { formatCustomerList, formatBudgetList, formatFeeList, helpText } = require("./format");
+const {
+  customerFilterKeyboard,
+  listActionKeyboard,
+  mainKeyboard,
+  feeListKeyboard,
+  campaignListKeyboard,
+} = require("./keyboards");
+const {
+  formatCustomerList,
+  formatBudgetList,
+  formatFeeList,
+  formatCampaignList,
+  helpText,
+} = require("./format");
 const forms = require("./forms");
+const { syncYesterday, formatSyncResult } = require("../sync");
 
 function isCmd(text, name) {
   if (!text) return false;
@@ -42,6 +55,52 @@ async function handleUpdate(update) {
 
   if (update.callback_query) return dispatchCallback(ctx);
   if (update.message?.text) return dispatchText(ctx);
+}
+
+async function runAdsSync(ctx) {
+  forms.clearForm(ctx);
+  await ctx.reply("Đang kéo số Facebook Ads hôm qua...");
+  try {
+    const result = await syncYesterday();
+    return ctx.reply(formatSyncResult(result), mainKeyboard);
+  } catch (err) {
+    console.error("Lỗi /dong_bo_ads:", err);
+    return ctx.reply(`Không đồng bộ được: ${err.message || err}`, mainKeyboard);
+  }
+}
+
+async function showCampaignMenu(ctx) {
+  try {
+    const customers = await sheets.listCustomers();
+    ctx.session.campaignCustomers = customers;
+    await ctx.reply(
+      "Chọn khách hàng để xem thông số chiến dịch:",
+      campaignListKeyboard(customers)
+    );
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("Không đọc được Google Sheet.");
+  }
+}
+
+async function showCampaigns(ctx, customer) {
+  try {
+    const list = await sheets.listCampaigns(customer);
+    await ctx.reply(formatCampaignList(list, customer), {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "➕ Nhập thông số", callback_data: "go:add-campaign" },
+            { text: "✏️ Sửa", callback_data: "go:edit-campaign" },
+          ],
+          [{ text: "« Chọn khách khác", callback_data: "go:campaign-menu" }],
+        ],
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("Không đọc được Google Sheet.");
+  }
 }
 
 async function showCustomers(ctx, status) {
@@ -93,6 +152,10 @@ async function dispatchText(ctx) {
   if (isCmd(text, "them_thu_phi")) return forms.startAddFee(ctx);
   if (isCmd(text, "sua_thu_phi")) return forms.startEditFee(ctx);
   if (isCmd(text, "doi_trang_thai")) return forms.startChangeStatus(ctx);
+  if (isCmd(text, "them_chien_dich")) return forms.startAddCampaign(ctx);
+  if (isCmd(text, "sua_chien_dich")) return forms.startEditCampaign(ctx);
+  if (isCmd(text, "gan_ad_account")) return forms.startLinkAdAccount(ctx);
+  if (isCmd(text, "dong_bo_ads")) return runAdsSync(ctx);
 
   if (isCmd(text, "khach_hang") || text === "👥 Khách hàng") {
     forms.clearForm(ctx);
@@ -110,6 +173,10 @@ async function dispatchText(ctx) {
       console.error(err);
       return ctx.reply("Không đọc được Google Sheet.");
     }
+  }
+  if (isCmd(text, "chien_dich") || text === "📊 Chiến dịch") {
+    forms.clearForm(ctx);
+    return showCampaignMenu(ctx);
   }
   if (isCmd(text, "thu_phi_dv") || text === "🧾 Thu phí DV") {
     forms.clearForm(ctx);
@@ -139,6 +206,16 @@ async function dispatchCallback(ctx) {
   if (data === "go:add-budget") return forms.startAddBudget(ctx);
   if (data === "go:add-fee") return forms.startAddFee(ctx);
   if (data === "go:edit-fee") return forms.startEditFee(ctx);
+  if (data === "go:add-campaign") return forms.startAddCampaign(ctx);
+  if (data === "go:edit-campaign") return forms.startEditCampaign(ctx);
+  if (data === "go:campaign-menu") return showCampaignMenu(ctx);
+  if (data === "cview:all") return showCampaigns(ctx);
+  if (data.startsWith("cview:")) {
+    const customers = ctx.session.campaignCustomers || (await sheets.listCustomers());
+    const customer = customers[Number(data.slice(6))];
+    if (!customer) return ctx.reply("Không tìm thấy khách hàng.");
+    return showCampaigns(ctx, customer.name);
+  }
 }
 
 async function runPolling() {
@@ -156,6 +233,11 @@ async function runPolling() {
     { command: "them_thu_phi", description: "Thêm thu phí DV" },
     { command: "sua_thu_phi", description: "Sửa thu phí DV" },
     { command: "doi_trang_thai", description: "Đổi trạng thái KH" },
+    { command: "chien_dich", description: "Xem thông số chiến dịch" },
+    { command: "them_chien_dich", description: "Nhập thông số chiến dịch" },
+    { command: "sua_chien_dich", description: "Sửa thông số chiến dịch" },
+    { command: "gan_ad_account", description: "Gán Ad Account Facebook" },
+    { command: "dong_bo_ads", description: "Kéo số Facebook Ads hôm qua" },
     { command: "huy", description: "Hủy thao tác" },
   ]);
 

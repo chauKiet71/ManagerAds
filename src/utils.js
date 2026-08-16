@@ -24,6 +24,32 @@ function todayStr() {
   return formatDate(d, m, y);
 }
 
+function yesterdayParts() {
+  const t = todayParts();
+  const dt = new Date(Date.UTC(t.y, t.m - 1, t.d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return { d: dt.getUTCDate(), m: dt.getUTCMonth() + 1, y: dt.getUTCFullYear() };
+}
+
+function yesterdayStr() {
+  const p = yesterdayParts();
+  return formatDate(p.d, p.m, p.y);
+}
+
+function toIsoDate(p) {
+  return `${p.y}-${pad(p.m)}-${pad(p.d)}`;
+}
+
+function yesterdayIso() {
+  return toIsoDate(yesterdayParts());
+}
+
+function isoToDisplay(iso) {
+  const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return formatDate(Number(match[3]), Number(match[2]), Number(match[1]));
+}
+
 function parseDate(str) {
   if (!str) return null;
   const cleaned = String(str).trim();
@@ -83,6 +109,9 @@ function escapeHtml(text) {
 module.exports = {
   VN_TZ,
   todayStr,
+  yesterdayStr,
+  yesterdayIso,
+  isoToDisplay,
   parseDate,
   normalizeDate,
   isSameOrBeforeToday,

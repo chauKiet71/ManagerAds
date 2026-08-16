@@ -23,6 +23,25 @@ const SHEETS = {
     title: "ThuPhiDV",
     headers: ["ID", "Khách hàng", "Phí dịch vụ", "Ngày thu phí dịch vụ", "Đã thông báo"],
   },
+  campaigns: {
+    title: "ChienDich",
+    headers: [
+      "ID",
+      "Khách hàng",
+      "Tên chiến dịch",
+      "Nền tảng",
+      "Chi tiêu",
+      "Tiếp cận",
+      "Click",
+      "Kết quả",
+      "Ngày",
+      "Campaign ID",
+    ],
+  },
+  adAccounts: {
+    title: "TaiKhoanAds",
+    headers: ["ID", "Khách hàng", "Ad Account ID"],
+  },
 };
 
 const STATUS = {
@@ -97,6 +116,31 @@ function mapBudget(row) {
   };
 }
 
+function mapCampaign(row) {
+  return {
+    id: row.get("ID") || "",
+    customer: row.get("Khách hàng") || "",
+    name: row.get("Tên chiến dịch") || "",
+    platform: row.get("Nền tảng") || "",
+    spend: row.get("Chi tiêu") || "",
+    reach: row.get("Tiếp cận") || "",
+    clicks: row.get("Click") || "",
+    results: row.get("Kết quả") || "",
+    date: row.get("Ngày") || "",
+    campaignId: row.get("Campaign ID") || "",
+    _row: row,
+  };
+}
+
+function mapAdAccount(row) {
+  return {
+    id: row.get("ID") || "",
+    customer: row.get("Khách hàng") || "",
+    adAccountId: String(row.get("Ad Account ID") || "").replace(/[^\d]/g, ""),
+    _row: row,
+  };
+}
+
 function mapFee(row) {
   return {
     id: row.get("ID") || "",
@@ -115,6 +159,8 @@ const sheets = {
     await getSheet("customers");
     await getSheet("budgets");
     await getSheet("fees");
+    await getSheet("campaigns");
+    await getSheet("adAccounts");
   },
 
   STATUS,
@@ -222,6 +268,106 @@ const sheets = {
     if (!item) return;
     item._row.set("Đã thông báo", "true");
     await item._row.save();
+  },
+
+  async listCampaigns(customer) {
+    const sheet = await getSheet("campaigns");
+    const rows = await sheet.getRows();
+    let items = rows.map(mapCampaign).filter((c) => c.customer || c.name);
+    if (customer) {
+      const want = customer.trim().toLowerCase();
+      items = items.filter((c) => c.customer.trim().toLowerCase() === want);
+    }
+    return items;
+  },
+
+  async addCampaign(data) {
+    const sheet = await getSheet("campaigns");
+    const id = await nextId(sheet, "CD");
+    await sheet.addRow({
+      ID: id,
+      "Khách hàng": data.customer,
+      "Tên chiến dịch": data.name,
+      "Nền tảng": data.platform,
+      "Chi tiêu": data.spend,
+      "Tiếp cận": data.reach,
+      "Click": data.clicks,
+      "Kết quả": data.results,
+      Ngày: data.date,
+      "Campaign ID": data.campaignId || "",
+    });
+    return { id, ...data };
+  },
+
+  async upsertCampaignByMeta(data) {
+    const all = await this.listCampaigns();
+    const existing = all.find(
+      (c) =>
+        c.campaignId &&
+        c.campaignId === data.campaignId &&
+        c.date === data.date
+    );
+    if (existing) {
+      existing._row.set("Khách hàng", data.customer);
+      existing._row.set("Tên chiến dịch", data.name);
+      existing._row.set("Nền tảng", data.platform || "Facebook");
+      existing._row.set("Chi tiêu", data.spend);
+      existing._row.set("Tiếp cận", data.reach);
+      existing._row.set("Click", data.clicks);
+      existing._row.set("Kết quả", data.results);
+      existing._row.set("Ngày", data.date);
+      existing._row.set("Campaign ID", data.campaignId);
+      await existing._row.save();
+      return { ...existing, ...data, updated: true };
+    }
+    const created = await this.addCampaign({
+      ...data,
+      platform: data.platform || "Facebook",
+    });
+    return { ...created, updated: false };
+  },
+
+  async updateCampaign(id, data) {
+    const all = await this.listCampaigns();
+    const item = all.find((c) => c.id === id);
+    if (!item) return null;
+    item._row.set("Tên chiến dịch", data.name);
+    item._row.set("Nền tảng", data.platform);
+    item._row.set("Chi tiêu", data.spend);
+    item._row.set("Tiếp cận", data.reach);
+    item._row.set("Click", data.clicks);
+    item._row.set("Kết quả", data.results);
+    item._row.set("Ngày", data.date);
+    if (data.campaignId) item._row.set("Campaign ID", data.campaignId);
+    await item._row.save();
+    return { ...item, ...data };
+  },
+
+  async listAdAccounts() {
+    const sheet = await getSheet("adAccounts");
+    const rows = await sheet.getRows();
+    return rows.map(mapAdAccount).filter((a) => a.customer && a.adAccountId);
+  },
+
+  async upsertAdAccount({ customer, adAccountId }) {
+    const sheet = await getSheet("adAccounts");
+    const all = await this.listAdAccounts();
+    const existing = all.find(
+      (a) => a.customer.trim().toLowerCase() === customer.trim().toLowerCase()
+    );
+    const idValue = String(adAccountId).replace(/[^\d]/g, "");
+    if (existing) {
+      existing._row.set("Ad Account ID", idValue);
+      await existing._row.save();
+      return { ...existing, adAccountId: idValue };
+    }
+    const id = await nextId(sheet, "AD");
+    await sheet.addRow({
+      ID: id,
+      "Khách hàng": customer,
+      "Ad Account ID": idValue,
+    });
+    return { id, customer, adAccountId: idValue };
   },
 };
 
