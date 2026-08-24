@@ -126,9 +126,6 @@ async function checkUid(uid) {
         error: data?.error?.message || "Không đọc được dữ liệu Facebook",
       };
     }
-    if (data.data?.is_silhouette === true) {
-      return { uid: normalized, status: STATUS.DIE };
-    }
     if (data.data && typeof data.data.url === "string" && data.data.url) {
       return { uid: normalized, status: STATUS.LIVE };
     }
