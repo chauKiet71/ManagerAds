@@ -61,6 +61,7 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 | `/doi_trang_thai` | Đổi trạng thái KH |
 | `/ngan_sach` | Danh sách ngân sách + ngày hết NS |
 | `/them_ngan_sach` | Thêm lần chuyển khoản |
+| `/sua_ngan_sach` | Sửa số tiền, ngày CK, ngày hết NS |
 | `/thu_phi_dv` | Danh sách phí DV + ngày thu |
 | `/them_thu_phi` | Thêm phí và ngày thu |
 | `/sua_thu_phi` | Sửa phí hoặc ngày thu |

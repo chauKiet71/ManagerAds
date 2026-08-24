@@ -30,7 +30,7 @@ async function main() {
     console.error(err.message || err);
     process.exit(1);
   }
-  console.log("Google Sheet OK:", config.sheetId);
+  console.log("Google Sheet OK:", config.sheetId, "| Via Sheet:", config.viaSheetId);
 
   const bot = { sendMessage };
   await startCron(bot);

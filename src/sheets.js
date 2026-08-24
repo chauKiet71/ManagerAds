@@ -46,6 +46,10 @@ const SHEETS = {
     title: "CaiDat",
     headers: ["Key", "Value"],
   },
+  via: {
+    title: "Via",
+    headers: ["UID", "STATUS", "LastChecked"],
+  },
 };
 
 const STATUS = {
@@ -54,6 +58,13 @@ const STATUS = {
 };
 
 let doc;
+let viaDoc;
+
+async function openDoc(sheetId) {
+  const opened = new GoogleSpreadsheet(sheetId, auth());
+  await opened.loadInfo();
+  return opened;
+}
 
 function auth() {
   return new JWT({
@@ -65,9 +76,11 @@ function auth() {
 
 async function getSheet(key) {
   const meta = SHEETS[key];
-  let sheet = doc.sheetsByTitle[meta.title];
+  const source = key === "via" ? viaDoc : doc;
+  if (!source) throw new Error(`Chưa khởi tạo Google Sheet cho dữ liệu ${key}.`);
+  let sheet = source.sheetsByTitle[meta.title];
   if (!sheet) {
-    sheet = await doc.addSheet({
+    sheet = await source.addSheet({
       title: meta.title,
       headerValues: meta.headers,
     });
@@ -156,16 +169,28 @@ function mapFee(row) {
   };
 }
 
+function mapVia(row) {
+  return {
+    uid: String(row.get("UID") || "").trim(),
+    status: String(row.get("STATUS") || "").trim().toLowerCase(),
+    lastChecked: row.get("LastChecked") || "",
+    _row: row,
+  };
+}
+
 const sheets = {
   async init() {
-    doc = new GoogleSpreadsheet(config.sheetId, auth());
-    await doc.loadInfo();
+    doc = await openDoc(config.sheetId);
     await getSheet("customers");
     await getSheet("budgets");
     await getSheet("fees");
     await getSheet("campaigns");
     await getSheet("adAccounts");
     await getSheet("settings");
+
+    const viaTarget = config.viaSheetId || config.sheetId;
+    viaDoc = viaTarget === config.sheetId ? doc : await openDoc(viaTarget);
+    await getSheet("via");
   },
 
   STATUS,
@@ -235,6 +260,24 @@ const sheets = {
     if (!item) return;
     item._row.set("Đã thông báo", "true");
     await item._row.save();
+  },
+
+  async updateBudget(id, data) {
+    const all = await this.listBudgets();
+    const item = all.find((b) => b.id === id);
+    if (!item) return null;
+    item._row.set("Ngân sách", data.amount);
+    item._row.set("Ngày chuyển khoản", data.transferDate);
+    item._row.set("Ngày hết ngân sách", data.expireDate);
+    item._row.set("Đã thông báo", "false");
+    await item._row.save();
+    return {
+      ...item,
+      amount: data.amount,
+      transferDate: data.transferDate,
+      expireDate: data.expireDate,
+      notified: false,
+    };
   },
 
   async listFees() {
@@ -375,6 +418,34 @@ const sheets = {
     return { id, customer, adAccountId: idValue };
   },
 
+  async listVia() {
+    const sheet = await getSheet("via");
+    const rows = await sheet.getRows();
+    return rows.map(mapVia).filter((item) => item.uid);
+  },
+
+  async setViaStatus(uid, status) {
+    const normalizedUid = String(uid || "").replace(/[^\d]/g, "");
+    if (!normalizedUid) return null;
+    const now = new Date().toISOString();
+    const sheet = await getSheet("via");
+    const all = await this.listVia();
+    const existing = all.find((item) => item.uid === normalizedUid);
+    if (existing) {
+      existing._row.set("UID", normalizedUid);
+      existing._row.set("STATUS", status);
+      existing._row.set("LastChecked", now);
+      await existing._row.save();
+      return { uid: normalizedUid, status, lastChecked: now };
+    }
+    await sheet.addRow({
+      UID: normalizedUid,
+      STATUS: status,
+      LastChecked: now,
+    });
+    return { uid: normalizedUid, status, lastChecked: now };
+  },
+
   async getSetting(key) {
     const sheet = await getSheet("settings");
     const rows = await sheet.getRows();
@@ -420,6 +491,16 @@ const sheets = {
   async setReportChatId(chatId) {
     if (!chatId) return;
     await this.setSetting("ads_report_chat_id", String(chatId));
+  },
+
+  async getUidCheckTimes() {
+    const raw = await this.getSetting("uid_check_times");
+    if (raw === null || String(raw).trim() === "") return config.uidCheckTimes;
+    return String(raw);
+  },
+
+  async setUidCheckTimes(value) {
+    await this.setSetting("uid_check_times", String(value || ""));
   },
 };
 

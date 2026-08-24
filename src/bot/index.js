@@ -3,8 +3,8 @@ const sheets = require("../sheets");
 const tg = require("../telegram");
 const {
   customerFilterKeyboard,
-  listActionKeyboard,
   mainKeyboard,
+  listActionKeyboard,
   feeListKeyboard,
   campaignListKeyboard,
   dateRangeKeyboard,
@@ -21,6 +21,7 @@ const { syncYesterday, formatSyncResult } = require("../sync");
 const { replyInsights, loadCampaignInsights, formatDigestReport, splitTelegram } = require("../adsReport");
 const { resolveDateRange, formatReportTimes } = require("../utils");
 const { rememberReportTimes, describeNextReport } = require("../cron");
+const { parseUidList, checkUidListNow, setUidCheckTimes, describeCurrentUidSchedule } = require("../uidMonitor");
 
 function isCmd(text, name) {
   if (!text) return false;
@@ -115,6 +116,80 @@ async function runAdsSync(ctx) {
   }
 }
 
+function parseCheckUidFilePayload(text) {
+  const body = (text || "").replace(/^\/check_uid_file\b\s*/i, "").trim();
+  const headerMatch = body.match(/^(?:times?|schedule)\s*[:=]\s*([^\n\r]+)\s*\r?\n?([\s\S]*)$/i);
+  if (!headerMatch) {
+    return { scheduleText: null, uidText: body };
+  }
+  const direct = headerMatch[2];
+  const scheduleText = String(headerMatch[1] || "").trim();
+  const firstLineOnly = /[\n\r]/.test(body) === false;
+  if (firstLineOnly && direct === "") {
+    const parts = scheduleText.split(/\s+/).filter(Boolean);
+    if (parts.length > 1) {
+      return {
+        scheduleText: parts[0],
+        uidText: parts.slice(1).join(" "),
+      };
+    }
+  }
+  return {
+    scheduleText: headerMatch[1].trim(),
+    uidText: (headerMatch[2] || "").trim(),
+  };
+}
+
+async function handleCheckUid(ctx) {
+  const rawUid = (ctx.message?.text || "").replace(/^\/check_uid\b\s*/i, "").trim();
+  const uidList = parseUidList(rawUid);
+  if (!uidList.length) {
+    return ctx.reply("Nhập UID cần kiểm tra: /check_uid <UID>");
+  }
+
+  const result = await checkUidListNow(uidList.slice(0, 1), {
+    mode: "single",
+  });
+
+  if (!result.message) {
+    return ctx.reply("Không kiểm tra được UID.");
+  }
+  return ctx.reply(result.message);
+}
+
+async function handleCheckUidFile(ctx) {
+  const { scheduleText, uidText } = parseCheckUidFilePayload(ctx.message?.text || "");
+  if (scheduleText) {
+    try {
+      const schedule = await setUidCheckTimes(scheduleText);
+      const current = await describeCurrentUidSchedule();
+      await ctx.reply(`Đã lưu lịch tự động check UID: ${current}`);
+      if (schedule.disabled) {
+        await ctx.reply("Lịch tự động đã tắt.");
+      }
+      if (!uidText) return;
+    } catch (err) {
+      return ctx.reply(`Lịch không hợp lệ: ${err.message || err}`);
+    }
+  }
+
+  const uidList = parseUidList(uidText);
+  if (!uidList.length) {
+    return ctx.reply("Nhập danh sách UID. Ví dụ: /check_uid_file 123456789 987654321");
+  }
+
+  const bot = { sendMessage: (_chatId, message) => ctx.reply(message) };
+  const result = await checkUidListNow(uidList, {
+    chatId: ctx.chatId,
+    bot,
+    mode: "file",
+  });
+  if (!result.message) {
+    return ctx.reply("Không có UID hợp lệ trong danh sách.");
+  }
+  return;
+}
+
 async function showCampaignMenu(ctx) {
   try {
     const customers = await sheets.listCustomers();
@@ -185,10 +260,14 @@ async function dispatchText(ctx) {
     return ctx.reply(helpText(), { parse_mode: "HTML", ...mainKeyboard });
   }
 
+  if (isCmd(text, "check_uid_file")) return handleCheckUidFile(ctx);
+  if (isCmd(text, "check_uid")) return handleCheckUid(ctx);
+
   if (isCmd(text, "add_khach_hang") || text === "➕ Thêm khách hàng") {
     return forms.startAddCustomer(ctx);
   }
   if (isCmd(text, "them_ngan_sach")) return forms.startAddBudget(ctx);
+  if (isCmd(text, "sua_ngan_sach")) return forms.startEditBudget(ctx);
   if (isCmd(text, "them_thu_phi")) return forms.startAddFee(ctx);
   if (isCmd(text, "sua_thu_phi")) return forms.startEditFee(ctx);
   if (isCmd(text, "doi_trang_thai")) return forms.startChangeStatus(ctx);
@@ -247,6 +326,7 @@ async function dispatchCallback(ctx) {
   if (data === "kh:paused") return showCustomers(ctx, sheets.STATUS.PAUSED);
   if (data === "kh:all") return showCustomers(ctx);
   if (data === "go:add-budget") return forms.startAddBudget(ctx);
+  if (data === "go:edit-budget") return forms.startEditBudget(ctx);
   if (data === "go:add-fee") return forms.startAddFee(ctx);
   if (data === "go:edit-fee") return forms.startEditFee(ctx);
   if (data === "go:add-campaign") return forms.startAddCampaign(ctx);
@@ -298,6 +378,7 @@ async function runPolling() {
     { command: "tam_ngung", description: "KH tạm ngưng" },
     { command: "ngan_sach", description: "Ngân sách" },
     { command: "them_ngan_sach", description: "Thêm ngân sách" },
+    { command: "sua_ngan_sach", description: "Sửa ngân sách" },
     { command: "thu_phi_dv", description: "Thu phí dịch vụ" },
     { command: "them_thu_phi", description: "Thêm thu phí DV" },
     { command: "sua_thu_phi", description: "Sửa thu phí DV" },
@@ -310,6 +391,11 @@ async function runPolling() {
     { command: "gio_bao_cao", description: "Xem giờ gửi chỉ số ads" },
     { command: "dat_gio_bao_cao", description: "Đặt giờ gửi chỉ số ads" },
     { command: "gui_bao_cao", description: "Gửi chỉ số hôm nay ngay" },
+    { command: "check_uid", description: "Check realtime 1 UID Facebook" },
+    {
+      command: "check_uid_file",
+      description: "Check danh sách UID từ tin nhắn",
+    },
     { command: "huy", description: "Hủy thao tác" },
   ]);
 

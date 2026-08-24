@@ -19,6 +19,7 @@ const {
   customerPickKeyboard,
   mainKeyboard,
   feePickKeyboard,
+  budgetPickKeyboard,
   platformKeyboard,
   campaignPickKeyboard,
 } = require("./keyboards");
@@ -81,6 +82,52 @@ async function startAddCustomer(ctx) {
 async function startAddBudget(ctx) {
   setForm(ctx, { type: "add-budget", step: "pick", data: {} });
   return askPick(ctx, "Thêm ngân sách");
+}
+
+function budgetSummary(b) {
+  return [
+    `Khách hàng: ${b.customer}`,
+    `Ngân sách: ${b.amount ? formatMoney(b.amount) : "—"}`,
+    `Ngày chuyển khoản: ${b.transferDate || "—"}`,
+    `Ngày hết ngân sách: ${b.expireDate || "—"}`,
+  ].join("\n");
+}
+
+async function startEditBudget(ctx) {
+  const result = await withSheet(ctx, () => sheets.listBudgets());
+  if (!result.ok) return;
+  if (!result.value.length) {
+    clearForm(ctx);
+    await ctx.reply("Chưa có ngân sách. Dùng /them_ngan_sach trước.", mainKeyboard);
+    return;
+  }
+  setForm(ctx, { type: "edit-budget", step: "pick", data: {}, budgets: result.value });
+  await ctx.reply(
+    "Sửa ngân sách\n\nChọn dòng cần sửa:\n\nGửi /huy để hủy.",
+    budgetPickKeyboard(result.value)
+  );
+}
+
+async function beginEditBudget(ctx, budget) {
+  const form = getForm(ctx);
+  form.data = {
+    id: budget.id,
+    customer: budget.customer,
+    amount: budget.amount,
+    transferDate: budget.transferDate,
+    expireDate: budget.expireDate,
+  };
+  form.step = "amount";
+  await ctx.reply(
+    [
+      "Đang sửa ngân sách",
+      budgetSummary(budget),
+      "",
+      "Nhập <b>ngân sách mới</b> (ví dụ 500000)",
+      "Hoặc gửi <b>giu</b> để giữ nguyên số tiền.",
+    ].join("\n"),
+    { parse_mode: "HTML" }
+  );
 }
 
 async function startAddFee(ctx) {
@@ -245,6 +292,7 @@ async function handleFormText(ctx) {
 
   if (form.type === "add-customer") return handleAddCustomerText(ctx, form, text);
   if (form.type === "add-budget") return handleAddBudgetText(ctx, form, text);
+  if (form.type === "edit-budget") return handleEditBudgetText(ctx, form, text);
   if (form.type === "add-fee") return handleAddFeeText(ctx, form, text);
   if (form.type === "edit-fee") return handleEditFeeText(ctx, form, text);
   if (form.type === "add-campaign") return handleAddCampaignText(ctx, form, text);
@@ -459,6 +507,97 @@ async function handleAddBudgetText(ctx, form, text) {
         `Ngân sách: ${Number(created.value.amount).toLocaleString("vi-VN")} đ`,
         `Ngày chuyển khoản: ${created.value.transferDate}`,
         `Ngày hết ngân sách: ${created.value.expireDate}`,
+      ].join("\n"),
+      mainKeyboard
+    );
+    return true;
+  }
+  return true;
+}
+
+function parseBudgetDate(text, fallback) {
+  if (isKeep(text)) return fallback || null;
+  const raw = String(text || "").trim().toLowerCase();
+  if (raw === "hom nay" || raw === "hôm nay") return todayStr();
+  return normalizeDate(text);
+}
+
+async function handleEditBudgetText(ctx, form, text) {
+  if (form.step === "pick") {
+    await ctx.reply("Vui lòng chọn dòng ngân sách bằng nút bên trên, hoặc /huy.");
+    return true;
+  }
+  if (form.step === "amount") {
+    if (isKeep(text)) {
+      form.data.amount = parseMoney(String(form.data.amount)) || form.data.amount;
+    } else {
+      const amount = parseMoney(text);
+      if (!amount) {
+        await ctx.reply('Ngân sách không hợp lệ. Nhập số, ví dụ 500000 — hoặc gửi "giu" để giữ nguyên.');
+        return true;
+      }
+      form.data.amount = amount;
+    }
+    form.step = "transfer";
+    await ctx.reply(
+      [
+        `Ngân sách sẽ lưu: <b>${form.data.amount ? formatMoney(form.data.amount) : "—"}</b>`,
+        "",
+        `Nhập <b>ngày chuyển khoản mới</b> (dd/mm/yyyy), "hom nay", hoặc <b>giu</b>.`,
+        `Hiện tại: ${form.data.transferDate || "—"}`,
+      ].join("\n"),
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+  if (form.step === "transfer") {
+    const date = parseBudgetDate(text, form.data.transferDate);
+    if (!date) {
+      await ctx.reply('Ngày không hợp lệ. Ví dụ 16/8/2026, hom nay, hoặc "giu".');
+      return true;
+    }
+    form.data.transferDate = date;
+    form.step = "expire";
+    await ctx.reply(
+      [
+        `Ngày chuyển khoản: <b>${date}</b>`,
+        "",
+        `Nhập <b>ngày hết ngân sách mới</b> (dd/mm/yyyy) hoặc <b>giu</b>.`,
+        `Hiện tại: ${form.data.expireDate || "—"}`,
+        "Đổi ngày hết thì bot sẽ nhắc lại khi đến hạn.",
+      ].join("\n"),
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+  if (form.step === "expire") {
+    const date = parseBudgetDate(text, form.data.expireDate);
+    if (!date) {
+      await ctx.reply("Ngày không hợp lệ. Ví dụ 20/8/2026 hoặc giu.");
+      return true;
+    }
+    const saved = await withSheet(ctx, () =>
+      sheets.updateBudget(form.data.id, {
+        amount: form.data.amount,
+        transferDate: form.data.transferDate,
+        expireDate: date,
+      })
+    );
+    if (!saved.ok) return true;
+    if (!saved.value) {
+      clearForm(ctx);
+      await ctx.reply("Không tìm thấy dòng ngân sách để sửa.", mainKeyboard);
+      return true;
+    }
+    clearForm(ctx);
+    await ctx.reply(
+      [
+        "✅ Đã cập nhật ngân sách",
+        "",
+        `Khách hàng: ${saved.value.customer}`,
+        `Ngân sách: ${saved.value.amount ? formatMoney(saved.value.amount) : "—"}`,
+        `Ngày chuyển khoản: ${saved.value.transferDate}`,
+        `Ngày hết ngân sách: ${saved.value.expireDate}`,
       ].join("\n"),
       mainKeyboard
     );
@@ -886,6 +1025,29 @@ async function handleFormAction(ctx) {
     return true;
   }
 
+  if (data.startsWith("nspick:")) {
+    const idx = Number(data.slice(7));
+    await ctx.answerCbQuery();
+    let form = getForm(ctx);
+    if (!form || form.type !== "edit-budget") {
+      const result = await withSheet(ctx, () => sheets.listBudgets());
+      if (!result.ok) return true;
+      setForm(ctx, { type: "edit-budget", step: "pick", data: {}, budgets: result.value });
+      form = getForm(ctx);
+    }
+    const budget = (form.budgets || [])[idx];
+    if (!budget) {
+      await ctx.reply("Không tìm thấy dòng ngân sách.");
+      clearForm(ctx);
+      return true;
+    }
+    try {
+      await ctx.editMessageReplyMarkup();
+    } catch (_) {}
+    await beginEditBudget(ctx, budget);
+    return true;
+  }
+
   if (data.startsWith("feepick:")) {
     const idx = Number(data.slice(8));
     await ctx.answerCbQuery();
@@ -1053,6 +1215,7 @@ module.exports = {
   isCancelText,
   startAddCustomer,
   startAddBudget,
+  startEditBudget,
   startAddFee,
   startEditFee,
   startAddCampaign,

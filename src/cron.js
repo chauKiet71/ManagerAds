@@ -11,6 +11,7 @@ const {
 } = require("./utils");
 const { syncYesterday, formatSyncResult } = require("./sync");
 const { loadCampaignInsights, formatDigestReport, splitTelegram } = require("./adsReport");
+const { startUidMonitor } = require("./uidMonitor");
 
 let cachedTimes = null;
 let digestBot = null;
@@ -219,6 +220,12 @@ async function startCron(bot) {
     );
   } catch (err) {
     console.warn("Chưa đọc được giờ báo cáo ads:", err.message || err);
+  }
+
+  try {
+    await startUidMonitor(bot);
+  } catch (err) {
+    console.warn("Không bật được monitor UID:", err.message || err);
   }
 }
 

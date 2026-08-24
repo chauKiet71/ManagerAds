@@ -46,6 +46,31 @@ function listActionKeyboard(addAction) {
   };
 }
 
+function budgetListKeyboard(budgets) {
+  const rows = (budgets || []).slice(0, 20).map((b, i) => [
+    {
+      text: `✏️ ${i + 1}. ${b.customer}`.slice(0, 60),
+      callback_data: `nspick:${i}`,
+    },
+  ]);
+  rows.push([
+    { text: "➕ Thêm", callback_data: "go:add-budget" },
+    { text: "✏️ Sửa", callback_data: "go:edit-budget" },
+  ]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
+function budgetPickKeyboard(budgets) {
+  const rows = (budgets || []).map((b, i) => [
+    {
+      text: `${i + 1}. ${b.customer} — ${b.expireDate || ""}`.slice(0, 60),
+      callback_data: `nspick:${i}`,
+    },
+  ]);
+  rows.push([{ text: "Hủy", callback_data: "pick:cancel" }]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
 function feeListKeyboard(fees) {
   const rows = (fees || []).slice(0, 20).map((f, i) => [
     { text: `✏️ ${i + 1}. ${f.customer}`.slice(0, 60), callback_data: `feepick:${i}` },
@@ -152,6 +177,8 @@ module.exports = {
   statusKeyboard,
   customerPickKeyboard,
   listActionKeyboard,
+  budgetListKeyboard,
+  budgetPickKeyboard,
   feeListKeyboard,
   feePickKeyboard,
   platformKeyboard,
