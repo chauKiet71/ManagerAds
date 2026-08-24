@@ -226,21 +226,25 @@ async function checkUidListNow(uids, { chatId = "", bot = null, mode = "file" } 
       lines.push(`UID ${item.uid}: ${item.status.toUpperCase()} (không đổi)`);
     }
   } else if (mode === "scheduled") {
-    for (const item of changed) {
-      lines.push(`🔔 ${transitionLine(item.uid, item.previous, item.status)}`);
+    for (const item of details) {
+      if (item.error || !item.status) continue;
+      if (item.changed) {
+        lines.push(`🔔 ${transitionLine(item.uid, item.previous, item.status)}`);
+      } else {
+        lines.push(`✅ UID ${item.uid}: ${item.status.toUpperCase()} (đã kiểm tra theo lịch)`);
+      }
     }
   } else {
-    for (const item of added) {
-      lines.push(`✅ ${item.uid}: ${item.status.toUpperCase()} (đã lưu)`);
-    }
-    for (const item of changed) {
-      lines.push(`🔔 ${transitionLine(item.uid, item.previous, item.status)}`);
-    }
-    for (const item of errors) {
-      lines.push(`⚠️ ${item.uid}: ${item.error}`);
-    }
-    if (!added.length && !changed.length && !errors.length) {
-      lines.push("Không có UID nào thay đổi trạng thái.");
+    for (const item of details) {
+      if (item.error || !item.status) {
+        lines.push(`⚠️ ${item.uid}: ${item.error || "Không xác định được trạng thái"}`);
+      } else if (item.isNew) {
+        lines.push(`✅ ${item.uid}: ${item.status.toUpperCase()} (đã lưu)`);
+      } else if (item.changed) {
+        lines.push(`🔔 ${transitionLine(item.uid, item.previous, item.status)}`);
+      } else {
+        lines.push(`✅ UID ${item.uid}: ${item.status.toUpperCase()} (không đổi)`);
+      }
     }
   }
 
