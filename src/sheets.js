@@ -59,6 +59,22 @@ const STATUS = {
 
 let doc;
 let viaDoc;
+const readySheets = new Set();
+
+function isQuotaError(err) {
+  return Number(err?.response?.status || err?.code) === 429 || /\b429\b|quota exceeded/i.test(String(err?.message || err));
+}
+
+async function withQuotaRetry(action, retries = 3) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await action();
+    } catch (err) {
+      if (!isQuotaError(err) || attempt >= retries) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 15000 * (attempt + 1)));
+    }
+  }
+}
 
 async function openDoc(sheetId) {
   const opened = new GoogleSpreadsheet(sheetId, auth());
@@ -79,13 +95,14 @@ async function getSheet(key) {
   const source = key === "via" ? viaDoc : doc;
   if (!source) throw new Error(`Chưa khởi tạo Google Sheet cho dữ liệu ${key}.`);
   let sheet = source.sheetsByTitle[meta.title];
+  if (sheet && readySheets.has(key)) return sheet;
   if (!sheet) {
     sheet = await source.addSheet({
       title: meta.title,
       headerValues: meta.headers,
     });
   } else {
-    await sheet.loadHeaderRow();
+    await withQuotaRetry(() => sheet.loadHeaderRow());
     const current = (sheet.headerValues || []).filter(Boolean);
     if (current.length === 0) {
       await sheet.setHeaderRow(meta.headers);
@@ -96,6 +113,7 @@ async function getSheet(key) {
       }
     }
   }
+  readySheets.add(key);
   return sheet;
 }
 
@@ -420,7 +438,7 @@ const sheets = {
 
   async listVia() {
     const sheet = await getSheet("via");
-    const rows = await sheet.getRows();
+    const rows = await withQuotaRetry(() => sheet.getRows());
     return rows.map(mapVia).filter((item) => item.uid);
   },
 
@@ -456,7 +474,7 @@ const sheets = {
     if (!normalizedItems.length) return [];
 
     const sheet = await getSheet("via");
-    const rows = await sheet.getRows();
+    const rows = await withQuotaRetry(() => sheet.getRows());
     const rowByUid = new Map();
     for (const row of rows) {
       const uid = String(row.get("UID") || "").trim();
