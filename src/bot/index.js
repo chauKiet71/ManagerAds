@@ -147,14 +147,20 @@ async function handleCheckUid(ctx) {
     return ctx.reply("Nhập UID cần kiểm tra: /check_uid <UID>");
   }
 
-  const result = await checkUidListNow(uidList.slice(0, 1), {
-    mode: "single",
-  });
+  await ctx.reply(`Đang kiểm tra UID ${uidList[0]}...`);
+  try {
+    const result = await checkUidListNow(uidList.slice(0, 1), {
+      mode: "single",
+    });
 
-  if (!result.message) {
-    return ctx.reply("Không kiểm tra được UID.");
+    if (!result.message) {
+      return ctx.reply("Không kiểm tra được UID.");
+    }
+    return ctx.reply(result.message);
+  } catch (err) {
+    console.error("Lỗi /check_uid:", err);
+    return ctx.reply(`Kiểm tra UID thất bại: ${err.message || err}`);
   }
-  return ctx.reply(result.message);
 }
 
 async function handleCheckUidFile(ctx) {
@@ -178,16 +184,22 @@ async function handleCheckUidFile(ctx) {
     return ctx.reply("Nhập danh sách UID. Ví dụ: /check_uid_file 123456789 987654321");
   }
 
-  const bot = { sendMessage: (_chatId, message) => ctx.reply(message) };
-  const result = await checkUidListNow(uidList, {
-    chatId: ctx.chatId,
-    bot,
-    mode: "file",
-  });
-  if (!result.message) {
-    return ctx.reply("Không có UID hợp lệ trong danh sách.");
+  await ctx.reply(`Đã nhận ${uidList.length} UID, đang kiểm tra và cập nhật Google Sheet...`);
+  try {
+    const bot = { sendMessage: (_chatId, message) => ctx.reply(message) };
+    const result = await checkUidListNow(uidList, {
+      chatId: ctx.chatId,
+      bot,
+      mode: "file",
+    });
+    if (!result.message) {
+      return ctx.reply("Không có UID hợp lệ trong danh sách.");
+    }
+    return;
+  } catch (err) {
+    console.error("Lỗi /check_uid_file:", err);
+    return ctx.reply(`Kiểm tra danh sách UID thất bại: ${err.message || err}`);
   }
-  return;
 }
 
 async function showCampaignMenu(ctx) {
