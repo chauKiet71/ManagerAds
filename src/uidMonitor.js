@@ -109,12 +109,15 @@ async function checkUid(uid) {
       data = null;
     }
 
-    if (!response.ok) {
+    if (response.status === 429 || response.status >= 500) {
       return {
         uid: normalized,
-        status: STATUS.DIE,
+        status: "",
         error: `HTTP ${response.status}`,
       };
+    }
+    if (!response.ok) {
+      return { uid: normalized, status: STATUS.DIE };
     }
     if (!data || data.error) {
       return {
@@ -123,6 +126,9 @@ async function checkUid(uid) {
         error: data?.error?.message || "Không đọc được dữ liệu Facebook",
       };
     }
+    if (data.data?.is_silhouette === true) {
+      return { uid: normalized, status: STATUS.DIE };
+    }
     if (data.data && typeof data.data.url === "string" && data.data.url) {
       return { uid: normalized, status: STATUS.LIVE };
     }
@@ -130,7 +136,7 @@ async function checkUid(uid) {
   } catch (error) {
     return {
       uid: normalized,
-      status: STATUS.DIE,
+      status: "",
       error: error.message || String(error),
     };
   }
@@ -147,7 +153,7 @@ async function checkAndPersist(uids) {
     checked.push(result);
   }
 
-  const saved = await sheets.setViaStatuses(checked);
+  const saved = await sheets.setViaStatuses(checked.filter((item) => item.status));
   const savedByUid = new Map(saved.map((item) => [item.uid, item]));
   return checked.map((result) => {
     const persisted = savedByUid.get(result.uid) || {};
@@ -157,8 +163,8 @@ async function checkAndPersist(uids) {
       status: result.status,
       previous,
       error: result.error || "",
-      changed: Boolean(previous && previous !== result.status),
-      isNew: !previous,
+      changed: Boolean(!result.error && result.status && previous && previous !== result.status),
+      isNew: Boolean(!result.error && result.status && !previous),
     };
   });
 }

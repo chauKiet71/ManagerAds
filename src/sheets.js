@@ -60,6 +60,8 @@ const STATUS = {
 let doc;
 let viaDoc;
 const readySheets = new Set();
+let viaRowsCache = null;
+const VIA_ROWS_CACHE_MS = 5 * 60 * 1000;
 
 function isQuotaError(err) {
   return Number(err?.response?.status || err?.code) === 429 || /\b429\b|quota exceeded/i.test(String(err?.message || err));
@@ -115,6 +117,16 @@ async function getSheet(key) {
   }
   readySheets.add(key);
   return sheet;
+}
+
+async function getViaRows() {
+  if (viaRowsCache && Date.now() - viaRowsCache.loadedAt < VIA_ROWS_CACHE_MS) {
+    return viaRowsCache.rows;
+  }
+  const sheet = await getSheet("via");
+  const rows = await withQuotaRetry(() => sheet.getRows());
+  viaRowsCache = { rows, loadedAt: Date.now() };
+  return rows;
 }
 
 async function nextId(sheet, prefix) {
@@ -437,8 +449,7 @@ const sheets = {
   },
 
   async listVia() {
-    const sheet = await getSheet("via");
-    const rows = await withQuotaRetry(() => sheet.getRows());
+    const rows = await getViaRows();
     return rows.map(mapVia).filter((item) => item.uid);
   },
 
@@ -447,8 +458,9 @@ const sheets = {
     if (!normalizedUid) return null;
     const now = new Date().toISOString();
     const sheet = await getSheet("via");
-    const all = await this.listVia();
-    const existing = all.find((item) => item.uid === normalizedUid);
+    const rows = await getViaRows();
+    const existingRow = rows.find((row) => String(row.get("UID") || "").trim() === normalizedUid);
+    const existing = existingRow ? mapVia(existingRow) : null;
     if (existing) {
       existing._row.set("UID", normalizedUid);
       existing._row.set("STATUS", status);
@@ -456,11 +468,12 @@ const sheets = {
       await existing._row.save();
       return { uid: normalizedUid, status, lastChecked: now };
     }
-    await sheet.addRow({
+    const addedRow = await sheet.addRow({
       UID: normalizedUid,
       STATUS: status,
       LastChecked: now,
     });
+    if (viaRowsCache) viaRowsCache.rows.push(addedRow);
     return { uid: normalizedUid, status, lastChecked: now };
   },
 
@@ -474,7 +487,7 @@ const sheets = {
     if (!normalizedItems.length) return [];
 
     const sheet = await getSheet("via");
-    const rows = await withQuotaRetry(() => sheet.getRows());
+    const rows = await getViaRows();
     const rowByUid = new Map();
     for (const row of rows) {
       const uid = String(row.get("UID") || "").trim();
@@ -500,7 +513,10 @@ const sheets = {
     }
 
     await Promise.all(updates);
-    if (additions.length) await sheet.addRows(additions);
+    if (additions.length) {
+      const addedRows = await sheet.addRows(additions);
+      if (viaRowsCache && Array.isArray(addedRows)) viaRowsCache.rows.push(...addedRows);
+    }
     return results;
   },
 
