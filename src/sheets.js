@@ -446,6 +446,46 @@ const sheets = {
     return { uid: normalizedUid, status, lastChecked: now };
   },
 
+  async setViaStatuses(items) {
+    const normalizedItems = (Array.isArray(items) ? items : [])
+      .map((item) => ({
+        uid: String(item?.uid || "").replace(/[^\d]/g, ""),
+        status: String(item?.status || "").trim().toLowerCase(),
+      }))
+      .filter((item) => item.uid);
+    if (!normalizedItems.length) return [];
+
+    const sheet = await getSheet("via");
+    const rows = await sheet.getRows();
+    const rowByUid = new Map();
+    for (const row of rows) {
+      const uid = String(row.get("UID") || "").trim();
+      if (uid && !rowByUid.has(uid)) rowByUid.set(uid, row);
+    }
+
+    const now = new Date().toISOString();
+    const updates = [];
+    const additions = [];
+    const results = [];
+    for (const item of normalizedItems) {
+      const row = rowByUid.get(item.uid);
+      const previous = row ? String(row.get("STATUS") || "").trim().toLowerCase() : "";
+      if (row) {
+        row.set("UID", item.uid);
+        row.set("STATUS", item.status);
+        row.set("LastChecked", now);
+        updates.push(row.save());
+      } else {
+        additions.push({ UID: item.uid, STATUS: item.status, LastChecked: now });
+      }
+      results.push({ uid: item.uid, status: item.status, previous, lastChecked: now });
+    }
+
+    await Promise.all(updates);
+    if (additions.length) await sheet.addRows(additions);
+    return results;
+  },
+
   async getSetting(key) {
     const sheet = await getSheet("settings");
     const rows = await sheet.getRows();

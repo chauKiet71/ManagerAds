@@ -141,27 +141,26 @@ async function checkAndPersist(uids) {
     .filter(Boolean);
   if (!normalized.length) return [];
 
-  const existing = await sheets.listVia();
-  const previousMap = new Map();
-  for (const item of existing) {
-    if (item.uid) previousMap.set(item.uid, item.status);
-  }
-
-  const details = [];
+  const checked = [];
   for (const uid of normalized) {
     const result = await checkUid(uid);
-    const previous = previousMap.get(result.uid) || "";
-    await sheets.setViaStatus(result.uid, result.status);
-    details.push({
+    checked.push(result);
+  }
+
+  const saved = await sheets.setViaStatuses(checked);
+  const savedByUid = new Map(saved.map((item) => [item.uid, item]));
+  return checked.map((result) => {
+    const persisted = savedByUid.get(result.uid) || {};
+    const previous = persisted.previous || "";
+    return {
       uid: result.uid,
       status: result.status,
       previous,
       error: result.error || "",
-      changed: previous && previous !== result.status,
+      changed: Boolean(previous && previous !== result.status),
       isNew: !previous,
-    });
-  }
-  return details;
+    };
+  });
 }
 
 async function checkUidListNow(uids, { chatId = "", bot = null, mode = "file" } = {}) {
