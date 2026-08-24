@@ -72,6 +72,32 @@ function transitionLine(uid, previous, next) {
   return `UID ${uid}: ${previous} => ${next}`;
 }
 
+function splitUidMessage(message, maxLength = 3800) {
+  const chunks = [];
+  let current = "";
+  for (const line of String(message || "").split("\n")) {
+    if (line.length > maxLength) {
+      if (current) {
+        chunks.push(current);
+        current = "";
+      }
+      for (let index = 0; index < line.length; index += maxLength) {
+        chunks.push(line.slice(index, index + maxLength));
+      }
+      continue;
+    }
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length > maxLength) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 async function resolveChatId() {
   if (cachedChatId) return cachedChatId;
   const saved = await sheets.getReportChatId();
@@ -220,7 +246,9 @@ async function checkUidListNow(uids, { chatId = "", bot = null, mode = "file" } 
 
   const message = lines.join("\n");
   if (bot && chatId && message) {
-    await bot.sendMessage(chatId, message);
+    for (const chunk of splitUidMessage(message)) {
+      await bot.sendMessage(chatId, chunk);
+    }
   }
 
   return {
