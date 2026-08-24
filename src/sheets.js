@@ -462,17 +462,22 @@ const sheets = {
     const existingRow = rows.find((row) => String(row.get("UID") || "").trim() === normalizedUid);
     const existing = existingRow ? mapVia(existingRow) : null;
     if (existing) {
+      if (existing.status === String(status || "").trim().toLowerCase()) {
+        return { uid: normalizedUid, status: existing.status, lastChecked: existing.lastChecked };
+      }
       existing._row.set("UID", normalizedUid);
       existing._row.set("STATUS", status);
       existing._row.set("LastChecked", now);
-      await existing._row.save();
+      await withQuotaRetry(() => existing._row.save());
       return { uid: normalizedUid, status, lastChecked: now };
     }
-    const addedRow = await sheet.addRow({
-      UID: normalizedUid,
-      STATUS: status,
-      LastChecked: now,
-    });
+    const addedRow = await withQuotaRetry(() =>
+      sheet.addRow({
+        UID: normalizedUid,
+        STATUS: status,
+        LastChecked: now,
+      })
+    );
     if (viaRowsCache) viaRowsCache.rows.push(addedRow);
     return { uid: normalizedUid, status, lastChecked: now };
   },
@@ -502,19 +507,23 @@ const sheets = {
       const row = rowByUid.get(item.uid);
       const previous = row ? String(row.get("STATUS") || "").trim().toLowerCase() : "";
       if (row) {
-        row.set("UID", item.uid);
-        row.set("STATUS", item.status);
-        row.set("LastChecked", now);
-        updates.push(row.save());
+        if (previous !== item.status) {
+          row.set("UID", item.uid);
+          row.set("STATUS", item.status);
+          row.set("LastChecked", now);
+          updates.push(row);
+        }
       } else {
         additions.push({ UID: item.uid, STATUS: item.status, LastChecked: now });
       }
       results.push({ uid: item.uid, status: item.status, previous, lastChecked: now });
     }
 
-    await Promise.all(updates);
+    for (const row of updates) {
+      await withQuotaRetry(() => row.save());
+    }
     if (additions.length) {
-      const addedRows = await sheet.addRows(additions);
+      const addedRows = await withQuotaRetry(() => sheet.addRows(additions));
       if (viaRowsCache && Array.isArray(addedRows)) viaRowsCache.rows.push(...addedRows);
     }
     return results;
