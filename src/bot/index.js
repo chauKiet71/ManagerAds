@@ -21,7 +21,12 @@ const { syncYesterday, formatSyncResult } = require("../sync");
 const { replyInsights, loadCampaignInsights, formatDigestReport, splitTelegram } = require("../adsReport");
 const { resolveDateRange, formatReportTimes } = require("../utils");
 const { rememberReportTimes, describeNextReport } = require("../cron");
-const { parseUidList, checkUidListNow, configureUidMonitor } = require("../uidMonitor");
+const {
+  parseUidList,
+  startRealtimeUidWatch,
+  stopRealtimeUidWatch,
+  configureUidMonitor,
+} = require("../uidMonitor");
 
 function isCmd(text, name) {
   if (!text) return false;
@@ -142,21 +147,39 @@ function parseCheckUidFilePayload(text) {
 
 async function handleCheckUid(ctx) {
   const rawUid = (ctx.message?.text || "").replace(/^\/check_uid\b\s*/i, "").trim();
+  const stopMatch = rawUid.match(/^(?:off|stop|tat|tắt)(?:\s+(.+))?$/i);
+  if (stopMatch) {
+    try {
+      const stopUids = parseUidList(stopMatch[1] || "");
+      const removed = await stopRealtimeUidWatch(stopUids[0] || "");
+      if (stopUids.length) {
+        return ctx.reply(
+          removed
+            ? `Đã dừng theo dõi realtime UID ${stopUids[0]}.`
+            : `UID ${stopUids[0]} không nằm trong danh sách realtime.`
+        );
+      }
+      return ctx.reply(`Đã dừng toàn bộ ${removed} UID realtime.`);
+    } catch (err) {
+      return ctx.reply(`Không dừng được monitor realtime: ${err.message || err}`);
+    }
+  }
+
   const uidList = parseUidList(rawUid);
   if (!uidList.length) {
-    return ctx.reply("Nhập UID cần kiểm tra: /check_uid <UID>");
+    return ctx.reply("Dùng /check_uid <UID> để kiểm tra và theo dõi realtime. Dừng bằng /check_uid off <UID>.");
   }
 
   await ctx.reply(`Đang kiểm tra UID ${uidList[0]}...`);
   try {
-    const result = await checkUidListNow(uidList.slice(0, 1), {
-      mode: "single",
-    });
-
-    if (!result.message) {
-      return ctx.reply("Không kiểm tra được UID.");
+    const result = await startRealtimeUidWatch(uidList[0], ctx.chatId);
+    if (result.error || !result.status) {
+      return ctx.reply(`UID ${uidList[0]}: lỗi kiểm tra (${result.error || "Không xác định được trạng thái"})`);
     }
-    return ctx.reply(result.message);
+    return ctx.reply(
+      `UID ${result.uid}: ${result.status.toUpperCase()}\n` +
+        `Đã bật theo dõi realtime mỗi ${result.intervalSeconds} giây; bot sẽ báo khi LIVE ↔ DIE.`
+    );
   } catch (err) {
     console.error("Lỗi /check_uid:", err);
     return ctx.reply(`Kiểm tra UID thất bại: ${err.message || err}`);

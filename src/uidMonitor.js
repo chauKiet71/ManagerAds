@@ -1,6 +1,10 @@
+const fs = require("fs/promises");
+const path = require("path");
 const config = require("./config");
 const sheets = require("./sheets");
 const { parseReportTimes, nextReportAt } = require("./utils");
+
+const REALTIME_STATE_FILE = path.join(__dirname, "..", "data", "uid-realtime.json");
 
 const STATUS = {
   LIVE: "live",
@@ -14,6 +18,9 @@ let uidBusy = false;
 let uidBot = null;
 let monitoredUidsCache = [];
 let monitorConfigLoaded = false;
+let realtimeUidTimer = null;
+let realtimeUidBusy = false;
+const realtimeUidMonitors = new Map();
 
 function normalizeUid(raw) {
   return String(raw || "").replace(/[^\d]/g, "");
@@ -169,6 +176,98 @@ async function checkUid(uid) {
       error: error.message || String(error),
     };
   }
+}
+
+function realtimeIntervalMs() {
+  return config.uidRealtimeIntervalSeconds * 1000;
+}
+
+async function persistRealtimeUidMonitors() {
+  const items = [...realtimeUidMonitors.entries()].map(([uid, item]) => ({ uid, ...item }));
+  await fs.mkdir(path.dirname(REALTIME_STATE_FILE), { recursive: true });
+  await fs.writeFile(REALTIME_STATE_FILE, JSON.stringify(items, null, 2), "utf8");
+}
+
+async function loadRealtimeUidMonitors() {
+  realtimeUidMonitors.clear();
+  try {
+    const raw = await fs.readFile(REALTIME_STATE_FILE, "utf8");
+    const saved = JSON.parse(raw);
+    for (const item of Array.isArray(saved) ? saved : []) {
+      const uid = normalizeUid(item?.uid);
+      const status = String(item?.status || "").trim().toLowerCase();
+      if (uid && [STATUS.LIVE, STATUS.DIE].includes(status)) {
+        realtimeUidMonitors.set(uid, { status, chatId: String(item?.chatId || "") });
+      }
+    }
+  } catch (err) {
+    if (err.code !== "ENOENT") console.warn("Không đọc được trạng thái UID realtime:", err.message || err);
+  }
+}
+
+function rescheduleRealtimeUidChecks() {
+  if (realtimeUidTimer) {
+    clearTimeout(realtimeUidTimer);
+    realtimeUidTimer = null;
+  }
+  if (!uidBot || !realtimeUidMonitors.size) return;
+
+  realtimeUidTimer = setTimeout(async () => {
+    realtimeUidTimer = null;
+    if (realtimeUidBusy) {
+      rescheduleRealtimeUidChecks();
+      return;
+    }
+    realtimeUidBusy = true;
+    let changed = false;
+    try {
+      for (const [uid, monitor] of realtimeUidMonitors) {
+        const result = await checkUid(uid);
+        if (result.error || !result.status) continue;
+        if (result.status !== monitor.status) {
+          const previous = monitor.status;
+          monitor.status = result.status;
+          changed = true;
+          if (monitor.chatId) {
+            await uidBot
+              .sendMessage(monitor.chatId, `🔔 UID ${uid}: ${previous.toUpperCase()} => ${result.status.toUpperCase()} (realtime)`)
+              .catch((err) => console.error("Không gửi được thông báo UID realtime:", err.message || err));
+          }
+        }
+      }
+      if (changed) await persistRealtimeUidMonitors();
+    } catch (err) {
+      console.error("Lỗi monitor UID realtime:", err);
+    } finally {
+      realtimeUidBusy = false;
+      rescheduleRealtimeUidChecks();
+    }
+  }, realtimeIntervalMs());
+}
+
+async function startRealtimeUidWatch(uid, chatId) {
+  const normalized = normalizeUid(uid);
+  if (!normalized) return { uid: "", status: "", error: "UID không hợp lệ" };
+  const result = await checkUid(normalized);
+  if (result.error || !result.status) return result;
+  realtimeUidMonitors.set(normalized, { status: result.status, chatId: String(chatId || "") });
+  await persistRealtimeUidMonitors();
+  rescheduleRealtimeUidChecks();
+  return { ...result, intervalSeconds: config.uidRealtimeIntervalSeconds };
+}
+
+async function stopRealtimeUidWatch(uid = "") {
+  const normalized = normalizeUid(uid);
+  let removed = 0;
+  if (normalized) {
+    removed = realtimeUidMonitors.delete(normalized) ? 1 : 0;
+  } else {
+    removed = realtimeUidMonitors.size;
+    realtimeUidMonitors.clear();
+  }
+  await persistRealtimeUidMonitors();
+  rescheduleRealtimeUidChecks();
+  return removed;
 }
 
 async function checkAndPersist(uids, { touchUnchanged = false } = {}) {
@@ -363,12 +462,14 @@ function getScheduleCache() {
   return scheduleCache;
 }
 
-function startUidMonitor(bot) {
+async function startUidMonitor(bot) {
   uidBot = bot || null;
   scheduleCache = null;
   cachedChatId = "";
   monitoredUidsCache = [];
   monitorConfigLoaded = false;
+  await loadRealtimeUidMonitors();
+  rescheduleRealtimeUidChecks();
   return rescheduleUidChecks(bot);
 }
 
@@ -376,7 +477,10 @@ module.exports = {
   STATUS,
   parseUidList,
   parseUidSchedule,
+  checkUid,
   checkUidListNow,
+  startRealtimeUidWatch,
+  stopRealtimeUidWatch,
   configureUidMonitor,
   setUidCheckTimes,
   runScheduledUidChecks,
