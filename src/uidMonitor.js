@@ -155,6 +155,9 @@ async function checkUid(uid) {
     if (!data || data.error) {
       return { uid: normalized, status: STATUS.DIE };
     }
+    if (data.data?.is_silhouette === true) {
+      return { uid: normalized, status: STATUS.DIE };
+    }
     if (data.data && typeof data.data.url === "string" && data.data.url) {
       return { uid: normalized, status: STATUS.LIVE };
     }
