@@ -12,6 +12,8 @@ let cachedChatId = "";
 let uidTimer = null;
 let uidBusy = false;
 let uidBot = null;
+let monitoredUidsCache = [];
+let monitorConfigLoaded = false;
 
 function normalizeUid(raw) {
   return String(raw || "").replace(/[^\d]/g, "");
@@ -106,16 +108,21 @@ async function resolveChatId() {
 }
 
 async function loadSchedule(force = false) {
-  if (!force && scheduleCache) return scheduleCache;
-  const saved = await sheets.getUidCheckTimes();
-  const fallback = saved == null || String(saved).trim() === "" ? config.uidCheckTimes : saved;
+  if (!force && monitorConfigLoaded && scheduleCache) return scheduleCache;
+  const saved = await sheets.getUidMonitorConfig();
+  const savedTimes = saved?.times;
+  const fallback = savedTimes == null || String(savedTimes).trim() === "" ? config.uidCheckTimes : savedTimes;
   const parsed = parseUidSchedule(fallback);
   if (parsed.error) {
     console.warn("UID schedule không hợp lệ, tắt lịch tự động:", parsed.error);
     scheduleCache = { times: [], realtime: false, raw: "", disabled: true, error: parsed.error };
+    monitoredUidsCache = [];
+    monitorConfigLoaded = true;
     return scheduleCache;
   }
   scheduleCache = parsed;
+  monitoredUidsCache = [...new Set(parseUidList((saved?.uids || []).join(",")))];
+  monitorConfigLoaded = true;
   return parsed;
 }
 
@@ -146,16 +153,12 @@ async function checkUid(uid) {
       return { uid: normalized, status: STATUS.DIE };
     }
     if (!data || data.error) {
-      return {
-        uid: normalized,
-        status: STATUS.DIE,
-        error: data?.error?.message || "Không đọc được dữ liệu Facebook",
-      };
+      return { uid: normalized, status: STATUS.DIE };
     }
     if (data.data && typeof data.data.url === "string" && data.data.url) {
       return { uid: normalized, status: STATUS.LIVE };
     }
-    return { uid: normalized, status: STATUS.DIE, error: "Không có dữ liệu ảnh đại diện" };
+    return { uid: normalized, status: STATUS.DIE };
   } catch (error) {
     return {
       uid: normalized,
@@ -165,7 +168,7 @@ async function checkUid(uid) {
   }
 }
 
-async function checkAndPersist(uids) {
+async function checkAndPersist(uids, { touchUnchanged = false } = {}) {
   const normalized = [...new Set(parseUidList(uids.join(",")))]
     .filter(Boolean);
   if (!normalized.length) return [];
@@ -173,10 +176,10 @@ async function checkAndPersist(uids) {
   const checked = [];
   for (const uid of normalized) {
     const result = await checkUid(uid);
-    checked.push(result);
+    checked.push({ ...result, checkedAt: new Date().toISOString() });
   }
 
-  const saved = await sheets.setViaStatuses(checked.filter((item) => item.status));
+  const saved = await sheets.setViaStatuses(checked.filter((item) => item.status), { touchUnchanged });
   const savedByUid = new Map(saved.map((item) => [item.uid, item]));
   return checked.map((result) => {
     const persisted = savedByUid.get(result.uid) || {};
@@ -206,7 +209,7 @@ async function checkUidListNow(uids, { chatId = "", bot = null, mode = "file" } 
     };
   }
 
-  const details = await checkAndPersist(normalized);
+  const details = await checkAndPersist(normalized, { touchUnchanged: mode === "scheduled" });
   const changed = details.filter((item) => item.changed);
   const added = details.filter((item) => item.isNew);
   const errors = details.filter((item) => item.error);
@@ -266,8 +269,8 @@ async function checkUidListNow(uids, { chatId = "", bot = null, mode = "file" } 
 }
 
 async function runScheduledUidChecks() {
-  const list = await sheets.listVia();
-  const uids = [...new Set(list.map((item) => item.uid).filter(Boolean))];
+  await loadSchedule();
+  const uids = [...monitoredUidsCache];
   if (!uids.length) return { checked: 0, changed: [], added: [], errors: [], details: [], message: "" };
   const chatId = await resolveChatId();
   if (!chatId || !uidBot) return { checked: 0, changed: [], added: [], errors: [], details: [], message: "" };
@@ -282,8 +285,8 @@ async function rescheduleUidChecks(bot = uidBot) {
   if (!bot) return null;
 
   const schedule = await loadSchedule();
-  if (!schedule || schedule.disabled || !schedule.times.length) {
-    console.log("UID monitor: tắt tự kiểm tra (chưa có khung giờ).");
+  if (!schedule || schedule.disabled || !schedule.times.length || !monitoredUidsCache.length) {
+    console.log("UID monitor: tắt tự kiểm tra (chưa có khung giờ hoặc danh sách UID).");
     return null;
   }
 
@@ -323,6 +326,21 @@ async function setUidCheckTimes(rawSchedule) {
   return parsed;
 }
 
+async function configureUidMonitor(rawSchedule, uids) {
+  const parsed = parseUidSchedule(rawSchedule);
+  if (parsed.error) throw new Error(parsed.error);
+  const normalizedUids = [...new Set(parseUidList(Array.isArray(uids) ? uids.join(",") : uids))];
+  if (!parsed.disabled && !normalizedUids.length) {
+    throw new Error("Danh sách UID đang trống.");
+  }
+  await sheets.setUidMonitorConfig({ times: parsed.raw, uids: normalizedUids });
+  scheduleCache = parsed;
+  monitoredUidsCache = normalizedUids;
+  monitorConfigLoaded = true;
+  const next = await rescheduleUidChecks(uidBot);
+  return { ...parsed, uids: normalizedUids, next };
+}
+
 function describeUidSchedule(cfg) {
   const schedule = cfg || scheduleCache || null;
   if (!schedule) return "Tắt";
@@ -346,6 +364,8 @@ function startUidMonitor(bot) {
   uidBot = bot || null;
   scheduleCache = null;
   cachedChatId = "";
+  monitoredUidsCache = [];
+  monitorConfigLoaded = false;
   return rescheduleUidChecks(bot);
 }
 
@@ -354,6 +374,7 @@ module.exports = {
   parseUidList,
   parseUidSchedule,
   checkUidListNow,
+  configureUidMonitor,
   setUidCheckTimes,
   runScheduledUidChecks,
   startUidMonitor,

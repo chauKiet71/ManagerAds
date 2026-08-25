@@ -21,7 +21,7 @@ const { syncYesterday, formatSyncResult } = require("../sync");
 const { replyInsights, loadCampaignInsights, formatDigestReport, splitTelegram } = require("../adsReport");
 const { resolveDateRange, formatReportTimes } = require("../utils");
 const { rememberReportTimes, describeNextReport } = require("../cron");
-const { parseUidList, checkUidListNow, setUidCheckTimes, describeCurrentUidSchedule } = require("../uidMonitor");
+const { parseUidList, checkUidListNow, configureUidMonitor } = require("../uidMonitor");
 
 function isCmd(text, name) {
   if (!text) return false;
@@ -165,40 +165,29 @@ async function handleCheckUid(ctx) {
 
 async function handleCheckUidFile(ctx) {
   const { scheduleText, uidText } = parseCheckUidFilePayload(ctx.message?.text || "");
-  if (scheduleText) {
-    try {
-      const schedule = await setUidCheckTimes(scheduleText);
-      const current = await describeCurrentUidSchedule();
-      await ctx.reply(`Đã lưu lịch tự động check UID: ${current}`);
-      if (schedule.disabled) {
-        await ctx.reply("Lịch tự động đã tắt.");
-      }
-      if (!uidText) return;
-    } catch (err) {
-      return ctx.reply(`Lịch không hợp lệ: ${err.message || err}`);
-    }
+  if (!scheduleText) {
+    return ctx.reply(
+      "Nhập lịch và danh sách UID theo mẫu:\n/check_uid_file\ntimes: 12:00,14:33,19:23\n123456789\n987654321"
+    );
   }
 
   const uidList = parseUidList(uidText);
-  if (!uidList.length) {
-    return ctx.reply("Nhập danh sách UID. Ví dụ: /check_uid_file 123456789 987654321");
-  }
-
-  await ctx.reply(`Đã nhận ${uidList.length} UID, đang kiểm tra và cập nhật Google Sheet...`);
   try {
-    const bot = { sendMessage: (_chatId, message) => ctx.reply(message) };
-    const result = await checkUidListNow(uidList, {
-      chatId: ctx.chatId,
-      bot,
-      mode: "file",
-    });
-    if (!result.message) {
-      return ctx.reply("Không có UID hợp lệ trong danh sách.");
+    const monitor = await configureUidMonitor(scheduleText, uidList);
+    if (monitor.disabled) {
+      return ctx.reply("Đã tắt lịch tự động check UID.");
     }
-    return;
+    return ctx.reply(
+      [
+        "Đã lưu cấu hình tự động check UID.",
+        `Khung giờ: ${monitor.times.join(", ")}`,
+        `Danh sách: ${monitor.uids.length} UID`,
+        "Bot sẽ kiểm tra vào mốc giờ tiếp theo; không kiểm tra ngay khi nhận lệnh.",
+      ].join("\n")
+    );
   } catch (err) {
-    console.error("Lỗi /check_uid_file:", err);
-    return ctx.reply(`Kiểm tra danh sách UID thất bại: ${err.message || err}`);
+    console.error("Lỗi lưu cấu hình /check_uid_file:", err);
+    return ctx.reply(`Không lưu được cấu hình check UID: ${err.message || err}`);
   }
 }
 

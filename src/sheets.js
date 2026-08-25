@@ -482,13 +482,14 @@ const sheets = {
     return { uid: normalizedUid, status, lastChecked: now };
   },
 
-  async setViaStatuses(items) {
+  async setViaStatuses(items, { touchUnchanged = false } = {}) {
     const normalizedItems = (Array.isArray(items) ? items : [])
       .map((item) => ({
         uid: String(item?.uid || "").replace(/[^\d]/g, ""),
         status: String(item?.status || "").trim().toLowerCase(),
+        checkedAt: String(item?.checkedAt || new Date().toISOString()),
       }))
-      .filter((item) => item.uid);
+      .filter((item) => item.uid && ["live", "die"].includes(item.status));
     if (!normalizedItems.length) return [];
 
     const sheet = await getSheet("via");
@@ -499,7 +500,6 @@ const sheets = {
       if (uid && !rowByUid.has(uid)) rowByUid.set(uid, row);
     }
 
-    const now = new Date().toISOString();
     const updates = [];
     const additions = [];
     const results = [];
@@ -507,20 +507,41 @@ const sheets = {
       const row = rowByUid.get(item.uid);
       const previous = row ? String(row.get("STATUS") || "").trim().toLowerCase() : "";
       if (row) {
-        if (previous !== item.status) {
-          row.set("UID", item.uid);
-          row.set("STATUS", item.status);
-          row.set("LastChecked", now);
-          updates.push(row);
-        }
+        if (touchUnchanged || previous !== item.status) updates.push({ row, item });
       } else {
-        additions.push({ UID: item.uid, STATUS: item.status, LastChecked: now });
+        additions.push({ UID: item.uid, STATUS: item.status, LastChecked: item.checkedAt });
       }
-      results.push({ uid: item.uid, status: item.status, previous, lastChecked: now });
+      results.push({ uid: item.uid, status: item.status, previous, lastChecked: item.checkedAt });
     }
 
-    for (const row of updates) {
-      await withQuotaRetry(() => row.save());
+    if (updates.length) {
+      const uidColumn = sheet.headerValues.indexOf("UID");
+      const statusColumn = sheet.headerValues.indexOf("STATUS");
+      const checkedColumn = sheet.headerValues.indexOf("LastChecked");
+      const columns = [uidColumn, statusColumn, checkedColumn];
+      if (columns.some((index) => index < 0)) {
+        throw new Error("Sheet Via cần có các cột UID, STATUS và LastChecked.");
+      }
+
+      const rowIndexes = updates.map(({ row }) => row.rowNumber - 1);
+      await withQuotaRetry(() =>
+        sheet.loadCells({
+          startRowIndex: Math.min(...rowIndexes),
+          endRowIndex: Math.max(...rowIndexes) + 1,
+          startColumnIndex: Math.min(...columns),
+          endColumnIndex: Math.max(...columns) + 1,
+        })
+      );
+      for (const { row, item } of updates) {
+        const rowIndex = row.rowNumber - 1;
+        sheet.getCell(rowIndex, uidColumn).value = item.uid;
+        sheet.getCell(rowIndex, statusColumn).value = item.status;
+        sheet.getCell(rowIndex, checkedColumn).value = item.checkedAt;
+        row.set("UID", item.uid);
+        row.set("STATUS", item.status);
+        row.set("LastChecked", item.checkedAt);
+      }
+      await withQuotaRetry(() => sheet.saveUpdatedCells());
     }
     if (additions.length) {
       const addedRows = await withQuotaRetry(() => sheet.addRows(additions));
@@ -584,6 +605,34 @@ const sheets = {
 
   async setUidCheckTimes(value) {
     await this.setSetting("uid_check_times", String(value || ""));
+  },
+
+  async getUidMonitorConfig() {
+    const raw = await this.getSetting("uid_monitor_config");
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        return {
+          times: String(parsed?.times || ""),
+          uids: Array.isArray(parsed?.uids) ? parsed.uids.map(String) : [],
+        };
+      } catch (err) {
+        console.warn("Cấu hình uid_monitor_config không hợp lệ:", err.message || err);
+      }
+    }
+    return { times: await this.getUidCheckTimes(), uids: [] };
+  },
+
+  async setUidMonitorConfig({ times, uids }) {
+    const normalizedUids = [...new Set((Array.isArray(uids) ? uids : [])
+      .map((uid) => String(uid || "").replace(/[^\d]/g, ""))
+      .filter(Boolean))];
+    const value = {
+      times: String(times || ""),
+      uids: normalizedUids,
+    };
+    await this.setSetting("uid_monitor_config", JSON.stringify(value));
+    return value;
   },
 };
 

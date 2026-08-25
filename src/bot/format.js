@@ -123,7 +123,7 @@ function helpText() {
     "/them_chien_dich — nhập thông số (chi tiêu, click...)",
     "/sua_chien_dich — sửa thông số chiến dịch",
     "/check_uid — kiểm tra realtime 1 UID",
-    "/check_uid_file — kiểm tra danh sách UID, lưu `UID`, `STATUS` lên sheet `Via`",
+    "/check_uid_file — lưu danh sách UID và lịch tự động check, cập nhật `STATUS` trên sheet `Via`",
     "",
     "/huy — hủy thao tác đang làm",
     "",
