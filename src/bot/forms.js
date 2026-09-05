@@ -23,6 +23,7 @@ const {
   platformKeyboard,
   campaignPickKeyboard,
   adAccountChoiceKeyboard,
+  adAccountBackKeyboard,
 } = require("./keyboards");
 
 const STATUS_FROM_CB = {
@@ -226,6 +227,35 @@ async function startLinkAdAccount(ctx) {
   return askPick(ctx, "Gán Ad Account Facebook");
 }
 
+async function startAddAdAccountForCustomer(ctx, customer) {
+  setForm(ctx, {
+    type: "manage-ad-account",
+    step: "account",
+    data: { mode: "add", customer },
+  });
+  await ctx.reply(
+    `Khách hàng: <b>${escapeHtml(customer)}</b>\n\nNhập <b>Ad Account ID</b> cần thêm:`,
+    { parse_mode: "HTML" }
+  );
+}
+
+async function startEditAdAccount(ctx, account) {
+  setForm(ctx, {
+    type: "manage-ad-account",
+    step: "account",
+    data: { mode: "update", customer: account.customer, account },
+  });
+  await ctx.reply(
+    [
+      `Khách hàng: <b>${escapeHtml(account.customer)}</b>`,
+      `TKQC hiện tại: <code>act_${account.adAccountId}</code>`,
+      "",
+      "Nhập <b>Ad Account ID mới</b>:",
+    ].join("\n"),
+    { parse_mode: "HTML" }
+  );
+}
+
 async function startSetReportTimes(ctx) {
   const current = await withSheet(ctx, () => sheets.getReportTimes());
   if (!current.ok) return;
@@ -299,6 +329,7 @@ async function handleFormText(ctx) {
   if (form.type === "add-campaign") return handleAddCampaignText(ctx, form, text);
   if (form.type === "edit-campaign") return handleEditCampaignText(ctx, form, text);
   if (form.type === "link-ad-account") return handleLinkAdAccountText(ctx, form, text);
+  if (form.type === "manage-ad-account") return handleManageAdAccountText(ctx, form, text);
   if (form.type === "ads-date-range") return handleAdsDateRangeText(ctx, form, text);
   if (form.type === "set-report-times") return handleSetReportTimesText(ctx, form, text);
   if (form.type === "change-status") {
@@ -423,6 +454,39 @@ async function handleLinkAdAccountText(ctx, form, text) {
       "Dùng /dong_bo_ads để kéo số hôm qua.",
     ].join("\n"),
     mainKeyboard
+  );
+  return true;
+}
+
+async function handleManageAdAccountText(ctx, form, text) {
+  const adAccountId = meta.normalizeAdAccountId(text);
+  if (!adAccountId) {
+    await ctx.reply("Ad Account ID không hợp lệ. Ví dụ: act_123456789 hoặc 123456789.");
+    return true;
+  }
+
+  const saved = await withSheet(ctx, () =>
+    form.data.mode === "update"
+      ? sheets.updateAdAccount(form.data.account.id, adAccountId)
+      : sheets.addAdAccount({ customer: form.data.customer, adAccountId })
+  );
+  if (!saved.ok) return true;
+  if (!saved.value) {
+    clearForm(ctx);
+    await ctx.reply("Không tìm thấy tài khoản quảng cáo.", adAccountBackKeyboard);
+    return true;
+  }
+  if (saved.value.duplicate) {
+    await ctx.reply(`TKQC act_${adAccountId} đã tồn tại. Vui lòng nhập ID khác.`);
+    return true;
+  }
+
+  clearForm(ctx);
+  await ctx.reply(
+    form.data.mode === "update"
+      ? `✅ Đã cập nhật TKQC → act_${saved.value.adAccountId}`
+      : `✅ Đã thêm TKQC act_${saved.value.adAccountId} cho "${saved.value.customer}".`,
+    adAccountBackKeyboard
   );
   return true;
 }
@@ -1281,6 +1345,8 @@ module.exports = {
   startEditCampaign,
   startChangeStatus,
   startLinkAdAccount,
+  startAddAdAccountForCustomer,
+  startEditAdAccount,
   startCustomAdsRange,
   startSetReportTimes,
   handleFormText,

@@ -5,6 +5,9 @@ const {
   customerFilterKeyboard,
   mainKeyboard,
   listActionKeyboard,
+  budgetListKeyboard,
+  budgetDeletePickKeyboard,
+  confirmDeleteBudgetKeyboard,
   feeListKeyboard,
   campaignListKeyboard,
   dateRangeKeyboard,
@@ -12,11 +15,16 @@ const {
   customerListActionsKeyboard,
   customerManagePickKeyboard,
   confirmDeleteCustomerKeyboard,
+  adAccountCustomerKeyboard,
+  adAccountActionsKeyboard,
+  adAccountManagePickKeyboard,
+  confirmDeleteAdAccountKeyboard,
 } = require("./keyboards");
 const {
   formatCustomerList,
   formatBudgetList,
   formatFeeList,
+  formatAdAccountList,
   helpText,
 } = require("./format");
 const forms = require("./forms");
@@ -148,8 +156,10 @@ function parseCheckUidFilePayload(text) {
   };
 }
 
-async function handleCheckUid(ctx) {
-  const rawUid = (ctx.message?.text || "").replace(/^\/check_uid\b\s*/i, "").trim();
+async function handleCheckUid(ctx, suppliedUid = null) {
+  const rawUid = suppliedUid === null
+    ? (ctx.message?.text || "").replace(/^\/check_uid\b\s*/i, "").trim()
+    : String(suppliedUid || "").trim();
   const stopMatch = rawUid.match(/^(?:off|stop|tat|tắt)(?:\s+(.+))?$/i);
   if (stopMatch) {
     try {
@@ -170,9 +180,11 @@ async function handleCheckUid(ctx) {
 
   const uidList = parseUidList(rawUid);
   if (!uidList.length) {
-    return ctx.reply("Dùng /check_uid <UID> để kiểm tra và theo dõi realtime. Dừng bằng /check_uid off <UID>.");
+    ctx.session.awaitingCheckUid = true;
+    return ctx.reply("Gửi UID Facebook cần kiểm tra:");
   }
 
+  ctx.session.awaitingCheckUid = false;
   await ctx.reply(`Đang kiểm tra UID ${uidList[0]}...`);
   try {
     const result = await startRealtimeUidWatch(uidList[0], ctx.chatId);
@@ -257,13 +269,55 @@ async function showCustomers(ctx, status) {
   }
 }
 
+async function showAdAccountCustomers(ctx) {
+  try {
+    const customers = await sheets.listCustomers();
+    if (!customers.length) return ctx.reply("Chưa có khách hàng. Hãy thêm khách hàng trước.", mainKeyboard);
+    ctx.session.tkqcCustomers = customers;
+    return ctx.reply("Chọn khách hàng để xem danh sách TKQC:", adAccountCustomerKeyboard(customers));
+  } catch (err) {
+    console.error("Lỗi đọc khách hàng cho DS TKQC:", err);
+    return ctx.reply("Không đọc được danh sách khách hàng.");
+  }
+}
+
+async function showAdAccounts(ctx, customer) {
+  try {
+    const accounts = await sheets.listAdAccounts(customer);
+    ctx.session.tkqcView = { customer, accounts };
+    return ctx.reply(formatAdAccountList(accounts, customer), adAccountActionsKeyboard());
+  } catch (err) {
+    console.error("Lỗi đọc DS TKQC:", err);
+    return ctx.reply("Không đọc được danh sách tài khoản quảng cáo.");
+  }
+}
+
+async function showBudgets(ctx) {
+  try {
+    const list = await sheets.listBudgets();
+    ctx.session.budgetList = list;
+    return ctx.reply(formatBudgetList(list), budgetListKeyboard(list));
+  } catch (err) {
+    console.error("Lỗi đọc danh sách ngân sách:", err);
+    return ctx.reply("Không đọc được Google Sheet.");
+  }
+}
+
 async function dispatchText(ctx) {
   const text = (ctx.message?.text || "").trim();
   console.log("TEXT:", JSON.stringify(text), "form:", ctx.session?.form?.type, ctx.session?.form?.step);
 
   if (isCmd(text, "huy") || text.toLowerCase() === "hủy") {
     if (forms.getForm(ctx)) return forms.cancelForm(ctx);
+    if (ctx.session.awaitingCheckUid) {
+      ctx.session.awaitingCheckUid = false;
+      return ctx.reply("Đã hủy nhập UID.", mainKeyboard);
+    }
     return ctx.reply("Không có thao tác nào đang mở.", mainKeyboard);
+  }
+
+  if (ctx.session.awaitingCheckUid && !text.startsWith("/")) {
+    return handleCheckUid(ctx, text);
   }
 
   if (forms.getForm(ctx) && !text.startsWith("/")) {
@@ -315,15 +369,14 @@ async function dispatchText(ctx) {
   if (isCmd(text, "dang_trien_khai")) return showCustomers(ctx, sheets.STATUS.ACTIVE);
   if (isCmd(text, "tam_ngung")) return showCustomers(ctx, sheets.STATUS.PAUSED);
 
+  if (isCmd(text, "ds_tkqc") || text === "📋 DS TKQC") {
+    forms.clearForm(ctx);
+    return showAdAccountCustomers(ctx);
+  }
+
   if (isCmd(text, "ngan_sach") || text === "💰 Ngân sách") {
     forms.clearForm(ctx);
-    try {
-      const list = await sheets.listBudgets();
-      return ctx.reply(formatBudgetList(list), listActionKeyboard("go:add-budget"));
-    } catch (err) {
-      console.error(err);
-      return ctx.reply("Không đọc được Google Sheet.");
-    }
+    return showBudgets(ctx);
   }
   if (isCmd(text, "chien_dich") || text === "📊 Chiến dịch") {
     forms.clearForm(ctx);
@@ -417,8 +470,101 @@ async function dispatchCallback(ctx) {
       return ctx.reply("Không xóa được khách hàng.");
     }
   }
+  if (data === "tkqc:cancel") return ctx.reply("Đã đóng danh sách TKQC.", mainKeyboard);
+  if (data === "tkqc:menu") return showAdAccountCustomers(ctx);
+  if (data.startsWith("tkqckh:")) {
+    const customer = (ctx.session.tkqcCustomers || [])[Number(data.slice(7))];
+    if (!customer) return ctx.reply("Danh sách khách hàng đã thay đổi. Vui lòng mở lại DS TKQC.");
+    return showAdAccounts(ctx, customer.name);
+  }
+  if (data === "tkqc:refresh") {
+    const customer = ctx.session.tkqcView?.customer;
+    return customer ? showAdAccounts(ctx, customer) : showAdAccountCustomers(ctx);
+  }
+  if (data === "tkqc:add") {
+    const customer = ctx.session.tkqcView?.customer;
+    if (!customer) return ctx.reply("Vui lòng chọn khách hàng trước.");
+    return forms.startAddAdAccountForCustomer(ctx, customer);
+  }
+  if (data === "tkqc:delete" || data === "tkqc:update") {
+    const view = ctx.session.tkqcView;
+    if (!view?.customer) return ctx.reply("Vui lòng chọn khách hàng trước.");
+    if (!view.accounts?.length) return ctx.reply("Khách hàng này chưa có TKQC để thao tác.");
+    const action = data.slice(5);
+    return ctx.reply(
+      action === "delete" ? "Chọn TKQC cần xóa:" : "Chọn TKQC cần cập nhật:",
+      adAccountManagePickKeyboard(view.accounts, action)
+    );
+  }
+  if (data.startsWith("tkqcpick:")) {
+    const [, action, rawIndex] = data.split(":");
+    const account = (ctx.session.tkqcView?.accounts || [])[Number(rawIndex)];
+    if (!account) return ctx.reply("Danh sách TKQC đã thay đổi. Vui lòng tải lại.");
+    if (action === "update") return forms.startEditAdAccount(ctx, account);
+    if (action === "delete") {
+      ctx.session.tkqcDelete = account;
+      return ctx.reply(`Xác nhận xóa TKQC act_${account.adAccountId}?`, confirmDeleteAdAccountKeyboard());
+    }
+  }
+  if (data === "tkqcdelete:no") {
+    ctx.session.tkqcDelete = null;
+    return showAdAccounts(ctx, ctx.session.tkqcView?.customer || "");
+  }
+  if (data === "tkqcdelete:yes") {
+    const account = ctx.session.tkqcDelete;
+    if (!account) return ctx.reply("Phiên xác nhận đã hết. Vui lòng thử lại.");
+    try {
+      const deleted = await sheets.deleteAdAccount(account.id);
+      ctx.session.tkqcDelete = null;
+      if (!deleted) return ctx.reply("Không tìm thấy TKQC.");
+      await ctx.reply(`✅ Đã xóa TKQC act_${deleted.adAccountId}.`);
+      return showAdAccounts(ctx, deleted.customer);
+    } catch (err) {
+      console.error("Lỗi xóa TKQC:", err);
+      return ctx.reply("Không xóa được tài khoản quảng cáo.");
+    }
+  }
   if (data === "go:add-budget") return forms.startAddBudget(ctx);
   if (data === "go:edit-budget") return forms.startEditBudget(ctx);
+  if (data === "budget:update") return forms.startEditBudget(ctx);
+  if (data === "budget:delete") {
+    try {
+      const budgets = await sheets.listBudgets();
+      if (!budgets.length) return ctx.reply("Chưa có ngân sách để xóa.");
+      ctx.session.budgetDeleteList = budgets;
+      return ctx.reply("Chọn dòng ngân sách cần xóa:", budgetDeletePickKeyboard(budgets));
+    } catch (err) {
+      console.error("Lỗi mở danh sách xóa ngân sách:", err);
+      return ctx.reply("Không đọc được danh sách ngân sách.");
+    }
+  }
+  if (data.startsWith("budgetpick:delete:")) {
+    const budget = (ctx.session.budgetDeleteList || [])[Number(data.slice(18))];
+    if (!budget) return ctx.reply("Danh sách ngân sách đã thay đổi. Vui lòng thử lại.");
+    ctx.session.budgetDelete = budget;
+    return ctx.reply(
+      `Xác nhận xóa ngân sách của "${budget.customer}" (${budget.amount || 0})?`,
+      confirmDeleteBudgetKeyboard()
+    );
+  }
+  if (data === "budgetdelete:no") {
+    ctx.session.budgetDelete = null;
+    return showBudgets(ctx);
+  }
+  if (data === "budgetdelete:yes") {
+    const budget = ctx.session.budgetDelete;
+    if (!budget) return ctx.reply("Phiên xác nhận đã hết. Vui lòng thử lại.");
+    try {
+      const deleted = await sheets.deleteBudget(budget.id);
+      ctx.session.budgetDelete = null;
+      if (!deleted) return ctx.reply("Không tìm thấy dòng ngân sách.");
+      await ctx.reply(`✅ Đã xóa ngân sách của "${deleted.customer}".`);
+      return showBudgets(ctx);
+    } catch (err) {
+      console.error("Lỗi xóa ngân sách:", err);
+      return ctx.reply("Không xóa được ngân sách.");
+    }
+  }
   if (data === "go:add-fee") return forms.startAddFee(ctx);
   if (data === "go:edit-fee") return forms.startEditFee(ctx);
   if (data === "go:add-campaign") return forms.startAddCampaign(ctx);
@@ -480,6 +626,7 @@ async function runPolling() {
     { command: "them_chien_dich", description: "Nhập thông số chiến dịch" },
     { command: "sua_chien_dich", description: "Sửa thông số chiến dịch" },
     { command: "gan_ad_account", description: "Gán Ad Account Facebook" },
+    { command: "ds_tkqc", description: "Danh sách và quản lý TKQC" },
     { command: "dong_bo_ads", description: "Kéo số Facebook Ads hôm qua" },
     { command: "gio_bao_cao", description: "Xem giờ gửi chỉ số ads" },
     { command: "dat_gio_bao_cao", description: "Đặt giờ gửi chỉ số ads" },

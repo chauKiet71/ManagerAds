@@ -1,9 +1,9 @@
 const mainKeyboard = {
   reply_markup: {
     keyboard: [
-      [{ text: "➕ Thêm khách hàng" }, { text: "👥 Khách hàng" }],
+      [{ text: "👥 Khách hàng" }],
       [{ text: "💰 Ngân sách" }, { text: "🧾 Thu phí DV" }],
-      [{ text: "📊 Chiến dịch" }],
+      [{ text: "📊 Chiến dịch" }, { text: "📋 DS TKQC" }],
     ],
     resize_keyboard: true,
   },
@@ -92,18 +92,89 @@ const adAccountChoiceKeyboard = {
   },
 };
 
-function budgetListKeyboard(budgets) {
-  const rows = (budgets || []).slice(0, 20).map((b, i) => [
+function adAccountCustomerKeyboard(customers) {
+  const rows = (customers || []).map((customer, index) => [
+    { text: `${index + 1}. ${customer.name}`.slice(0, 60), callback_data: `tkqckh:${index}` },
+  ]);
+  rows.push([{ text: "Hủy", callback_data: "tkqc:cancel" }]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
+function adAccountActionsKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "➕ Thêm", callback_data: "tkqc:add" },
+          { text: "🗑 Xóa", callback_data: "tkqc:delete" },
+          { text: "✏️ Cập nhật", callback_data: "tkqc:update" },
+        ],
+        [{ text: "↩ Chọn khách hàng khác", callback_data: "tkqc:menu" }],
+      ],
+    },
+  };
+}
+
+function adAccountManagePickKeyboard(accounts, action) {
+  const rows = (accounts || []).map((account, index) => [
     {
-      text: `✏️ ${i + 1}. ${b.customer}`.slice(0, 60),
-      callback_data: `nspick:${i}`,
+      text: `act_${account.adAccountId}`.slice(0, 60),
+      callback_data: `tkqcpick:${action}:${index}`,
     },
   ]);
-  rows.push([
-    { text: "➕ Thêm", callback_data: "go:add-budget" },
-    { text: "✏️ Sửa", callback_data: "go:edit-budget" },
-  ]);
+  rows.push([{ text: "Hủy", callback_data: "tkqc:refresh" }]);
   return { reply_markup: { inline_keyboard: rows } };
+}
+
+function confirmDeleteAdAccountKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "Xác nhận xóa", callback_data: "tkqcdelete:yes" },
+        { text: "Không", callback_data: "tkqcdelete:no" },
+      ]],
+    },
+  };
+}
+
+const adAccountBackKeyboard = {
+  reply_markup: {
+    inline_keyboard: [[{ text: "↩ Danh sách TKQC", callback_data: "tkqc:refresh" }]],
+  },
+};
+
+function budgetListKeyboard(budgets) {
+  return {
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "➕ Thêm", callback_data: "go:add-budget" },
+        { text: "🗑 Xóa", callback_data: "budget:delete" },
+        { text: "✏️ Cập nhật", callback_data: "budget:update" },
+      ]],
+    },
+  };
+}
+
+function budgetDeletePickKeyboard(budgets) {
+  const rows = (budgets || []).map((budget, index) => [
+    {
+      text: `${index + 1}. ${budget.customer} — ${budget.expireDate || ""}`.slice(0, 60),
+      callback_data: `budgetpick:delete:${index}`,
+    },
+  ]);
+  rows.push([{ text: "Hủy", callback_data: "budgetdelete:no" }]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
+function confirmDeleteBudgetKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "Xác nhận xóa", callback_data: "budgetdelete:yes" },
+        { text: "Không", callback_data: "budgetdelete:no" },
+      ]],
+    },
+  };
 }
 
 function budgetPickKeyboard(budgets) {
@@ -227,7 +298,14 @@ module.exports = {
   customerManagePickKeyboard,
   confirmDeleteCustomerKeyboard,
   adAccountChoiceKeyboard,
+  adAccountCustomerKeyboard,
+  adAccountActionsKeyboard,
+  adAccountManagePickKeyboard,
+  confirmDeleteAdAccountKeyboard,
+  adAccountBackKeyboard,
   budgetListKeyboard,
+  budgetDeletePickKeyboard,
+  confirmDeleteBudgetKeyboard,
   budgetPickKeyboard,
   feeListKeyboard,
   feePickKeyboard,

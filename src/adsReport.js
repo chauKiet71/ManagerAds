@@ -132,19 +132,10 @@ function formatPeriodReport(result, rangeInfo) {
     return lines.join("\n");
   }
 
-  const t = result.totals;
-  const lines = [
-    `📊 CHIẾN DỊCH${who} (${result.items.length})`,
-    `${rangeInfo.label} · ${titleRange}`,
-    "",
-    `Tổng chi tiêu: ${formatMoney(t.spend)}`,
-    `Tiếp cận: ${formatCount(t.reach)}  |  Click: ${formatCount(t.clicks)}`,
-    `Kết quả: ${formatCount(t.results)}  |  CTR: ${pct(t.clicks, t.impressions || t.reach)}`,
-    "",
-  ];
+  const lines = [];
   result.items.forEach((c, i) => {
-    lines.push(`${i + 1}. ${c.name || "—"}`);
-    if (!result.customer) lines.push(`   Khách: ${c.customer || "—"}`);
+    lines.push(`${i + 1}. Khách: ${c.customer || result.customer || "—"}`);
+    lines.push(`   Chiến dịch: ${c.name || "—"}`);
     lines.push(`   Chi tiêu: ${c.spend ? formatMoney(c.spend) : "—"}`);
     lines.push(`   Tiếp cận: ${formatCount(c.reach)}  |  Click: ${formatCount(c.clicks)}`);
     lines.push(`   Kết quả: ${formatCount(c.results)}  |  CTR: ${pct(c.clicks, c.impressions || c.reach)}`);

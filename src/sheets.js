@@ -318,6 +318,19 @@ const sheets = {
     };
   },
 
+  async deleteBudget(id) {
+    const all = await this.listBudgets();
+    const item = all.find((budget) => budget.id === id);
+    if (!item) return null;
+    await item._row.delete();
+    return {
+      id: item.id,
+      customer: item.customer,
+      amount: item.amount,
+      expireDate: item.expireDate,
+    };
+  },
+
   async listFees() {
     const sheet = await getSheet("fees");
     const rows = await sheet.getRows();
@@ -429,10 +442,15 @@ const sheets = {
     return { ...item, ...data };
   },
 
-  async listAdAccounts() {
+  async listAdAccounts(customer = "") {
     const sheet = await getSheet("adAccounts");
     const rows = await sheet.getRows();
-    return rows.map(mapAdAccount).filter((a) => a.customer && a.adAccountId);
+    let items = rows.map(mapAdAccount).filter((a) => a.customer && a.adAccountId);
+    if (customer) {
+      const target = customer.trim().toLowerCase();
+      items = items.filter((item) => item.customer.trim().toLowerCase() === target);
+    }
+    return items;
   },
 
   async upsertAdAccount({ customer, adAccountId }) {
@@ -454,6 +472,39 @@ const sheets = {
       "Ad Account ID": idValue,
     });
     return { id, customer, adAccountId: idValue };
+  },
+
+  async addAdAccount({ customer, adAccountId }) {
+    const sheet = await getSheet("adAccounts");
+    const idValue = String(adAccountId || "").replace(/[^\d]/g, "");
+    if (!idValue) throw new Error("Ad Account ID không hợp lệ.");
+    const all = await this.listAdAccounts();
+    const duplicate = all.find((item) => item.adAccountId === idValue);
+    if (duplicate) return { ...duplicate, duplicate: true };
+    const id = await nextId(sheet, "AD");
+    await sheet.addRow({ ID: id, "Khách hàng": customer, "Ad Account ID": idValue });
+    return { id, customer, adAccountId: idValue, duplicate: false };
+  },
+
+  async updateAdAccount(id, adAccountId) {
+    const all = await this.listAdAccounts();
+    const item = all.find((account) => account.id === id);
+    if (!item) return null;
+    const idValue = String(adAccountId || "").replace(/[^\d]/g, "");
+    if (!idValue) throw new Error("Ad Account ID không hợp lệ.");
+    const duplicate = all.find((account) => account.id !== id && account.adAccountId === idValue);
+    if (duplicate) return { ...duplicate, duplicate: true };
+    item._row.set("Ad Account ID", idValue);
+    await item._row.save();
+    return { ...item, adAccountId: idValue, duplicate: false };
+  },
+
+  async deleteAdAccount(id) {
+    const all = await this.listAdAccounts();
+    const item = all.find((account) => account.id === id);
+    if (!item) return null;
+    await item._row.delete();
+    return { id: item.id, customer: item.customer, adAccountId: item.adAccountId };
   },
 
   async listVia() {

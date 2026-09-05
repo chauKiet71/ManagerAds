@@ -41,6 +41,15 @@ function formatBudgetList(items) {
   return lines.join("\n").trim();
 }
 
+function formatAdAccountList(items, customer) {
+  if (!items.length) return `Khách hàng "${customer}" chưa có tài khoản quảng cáo.`;
+  const lines = [`📋 DS TKQC — ${customer.toUpperCase()} (${items.length})`, ""];
+  items.forEach((item, index) => {
+    lines.push(`${index + 1}. act_${item.adAccountId}`);
+  });
+  return lines.join("\n");
+}
+
 function formatCount(value) {
   const raw = String(value ?? "").trim();
   if (!raw) return "—";
@@ -62,17 +71,13 @@ function formatCampaignList(items, customer) {
       ? `Chưa có chiến dịch cho "${customer}".\nDùng /dong_bo_ads để kéo từ Facebook, hoặc /them_chien_dich để nhập tay.`
       : "Chưa có chiến dịch.\nDùng /dong_bo_ads để kéo từ Facebook, hoặc /them_chien_dich để nhập tay.";
   }
-  const title = customer
-    ? `📊 CHIẾN DỊCH — ${customer.toUpperCase()} (${items.length})`
-    : `📊 CHIẾN DỊCH (${items.length})`;
-  const lines = [title, ""];
+  const lines = [];
   items.forEach((c, i) => {
-    lines.push(`${i + 1}. ${c.name || "—"} — ${c.platform || "—"}`);
-    if (!customer) lines.push(`   Khách hàng: ${c.customer || "—"}`);
+    lines.push(`${i + 1}. Khách: ${c.customer || customer || "—"}`);
+    lines.push(`   Chiến dịch: ${c.name || "—"}`);
     lines.push(`   Chi tiêu: ${c.spend ? formatMoney(c.spend) : "—"}`);
     lines.push(`   Tiếp cận: ${formatCount(c.reach)}  |  Click: ${formatCount(c.clicks)}`);
     lines.push(`   Kết quả: ${formatCount(c.results)}  |  CTR: ${pct(c.clicks, c.reach)}`);
-    lines.push(`   Ngày: ${c.date || "—"}`);
     lines.push("");
   });
   return lines.join("\n").trim();
@@ -117,6 +122,7 @@ function helpText() {
     "<b>Chiến dịch ads</b>",
     "/chien_dich — xem thông số (chọn hôm nay, hôm qua, 7 ngày…)",
     "/gan_ad_account — gán Ad Account Facebook cho khách",
+    "/ds_tkqc — xem và quản lý danh sách tài khoản quảng cáo",
     "/dong_bo_ads — lưu số hôm qua vào Google Sheet",
     "/gio_bao_cao — xem giờ tự gửi chỉ số",
     "/dat_gio_bao_cao — đặt giờ gửi (ví dụ 8, 12, 16:30, 20, 23)",
@@ -136,6 +142,7 @@ module.exports = {
   STATUS_LABEL,
   formatCustomerList,
   formatBudgetList,
+  formatAdAccountList,
   formatFeeList,
   formatCampaignList,
   helpText,
