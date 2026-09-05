@@ -46,6 +46,52 @@ function listActionKeyboard(addAction) {
   };
 }
 
+function customerListActionsKeyboard(statusKey) {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "➕ Thêm", callback_data: `khact:add:${statusKey}` }],
+        [
+          { text: "🗑 Xóa", callback_data: `khact:delete:${statusKey}` },
+          { text: "🔄 Cập nhật trạng thái", callback_data: `khact:status:${statusKey}` },
+        ],
+        [{ text: "↩ Chọn danh sách khác", callback_data: "kh:menu" }],
+      ],
+    },
+  };
+}
+
+function customerManagePickKeyboard(customers, action, statusKey) {
+  const rows = (customers || []).map((customer, index) => [
+    {
+      text: `${index + 1}. ${customer.name}`.slice(0, 60),
+      callback_data: `khpick:${action}:${statusKey}:${index}`,
+    },
+  ]);
+  rows.push([{ text: "Hủy", callback_data: "kh:menu" }]);
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
+function confirmDeleteCustomerKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "Xác nhận xóa", callback_data: "khdelete:yes" },
+        { text: "Không", callback_data: "khdelete:no" },
+      ]],
+    },
+  };
+}
+
+const adAccountChoiceKeyboard = {
+  reply_markup: {
+    inline_keyboard: [[
+      { text: "Có", callback_data: "adlink:yes" },
+      { text: "Không", callback_data: "adlink:no" },
+    ]],
+  },
+};
+
 function budgetListKeyboard(budgets) {
   const rows = (budgets || []).slice(0, 20).map((b, i) => [
     {
@@ -177,6 +223,10 @@ module.exports = {
   statusKeyboard,
   customerPickKeyboard,
   listActionKeyboard,
+  customerListActionsKeyboard,
+  customerManagePickKeyboard,
+  confirmDeleteCustomerKeyboard,
+  adAccountChoiceKeyboard,
   budgetListKeyboard,
   budgetPickKeyboard,
   feeListKeyboard,

@@ -264,6 +264,14 @@ const sheets = {
     return { ...item, status };
   },
 
+  async deleteCustomer(id) {
+    const all = await this.listCustomers();
+    const item = all.find((customer) => customer.id === id);
+    if (!item) return null;
+    await item._row.delete();
+    return { id: item.id, name: item.name };
+  },
+
   async listBudgets() {
     const sheet = await getSheet("budgets");
     const rows = await sheet.getRows();

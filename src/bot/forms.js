@@ -22,6 +22,7 @@ const {
   budgetPickKeyboard,
   platformKeyboard,
   campaignPickKeyboard,
+  adAccountChoiceKeyboard,
 } = require("./keyboards");
 
 const STATUS_FROM_CB = {
@@ -65,9 +66,9 @@ async function withSheet(ctx, fn) {
   }
 }
 
-async function startAddCustomer(ctx) {
+async function startAddCustomer(ctx, { status = "" } = {}) {
   try {
-    setForm(ctx, { type: "add-customer", step: "name", data: {} });
+    setForm(ctx, { type: "add-customer", step: "name", data: { status } });
     console.log("Bắt đầu thêm KH, form =", ctx.session.form);
     await ctx.reply(
       "Thêm khách hàng\n\nNhập tên khách hàng:\n\nGửi /huy để hủy."
@@ -438,6 +439,9 @@ async function handleAddCustomerText(ctx, form, text) {
   }
   if (form.step === "field") {
     form.data.field = text;
+    if (form.data.status) {
+      return askCustomerAdAccount(ctx, form);
+    }
     form.step = "status";
     await ctx.reply("Chọn <b>trạng thái</b>:", {
       parse_mode: "HTML",
@@ -445,7 +449,68 @@ async function handleAddCustomerText(ctx, form, text) {
     });
     return true;
   }
-  await ctx.reply("Vui lòng chọn trạng thái bằng nút bên trên, hoặc /huy.");
+  if (form.step === "account") {
+    const adAccountId = meta.normalizeAdAccountId(text);
+    if (!adAccountId) {
+      await ctx.reply("Ad Account ID không hợp lệ. Ví dụ: act_123456789 hoặc 123456789.");
+      return true;
+    }
+    return finishAddCustomer(ctx, form, adAccountId);
+  }
+  await ctx.reply(
+    form.step === "link-account"
+      ? "Vui lòng chọn Có hoặc Không bằng nút bên trên, hoặc /huy."
+      : "Vui lòng chọn trạng thái bằng nút bên trên, hoặc /huy."
+  );
+  return true;
+}
+
+async function askCustomerAdAccount(ctx, form) {
+  form.step = "link-account";
+  await ctx.reply("Bạn có muốn gán tài khoản quảng cáo cho khách hàng này không?", adAccountChoiceKeyboard);
+  return true;
+}
+
+async function finishAddCustomer(ctx, form, adAccountId = "") {
+  const result = await withSheet(ctx, async () => {
+    const existing = await sheets.findCustomerByName(form.data.name);
+    if (existing) return { duplicate: existing };
+    const customer = await sheets.addCustomer({
+      name: form.data.name,
+      field: form.data.field,
+      status: form.data.status,
+    });
+    let linkedAccount = null;
+    let linkError = "";
+    if (adAccountId) {
+      try {
+        linkedAccount = await sheets.upsertAdAccount({ customer: customer.name, adAccountId });
+      } catch (err) {
+        linkError = err.message || String(err);
+      }
+    }
+    return { customer, linkedAccount, linkError };
+  });
+  if (!result.ok) return true;
+  if (result.value.duplicate) {
+    clearForm(ctx);
+    await ctx.reply(`Khách hàng "${form.data.name}" đã tồn tại.`, mainKeyboard);
+    return true;
+  }
+
+  const { customer, linkedAccount, linkError } = result.value;
+  clearForm(ctx);
+  const lines = [
+    "✅ Đã thêm khách hàng thành công",
+    "",
+    `ID: ${customer.id}`,
+    `Tên: ${customer.name}`,
+    `Lĩnh vực: ${customer.field}`,
+    `Trạng thái: ${customer.status}`,
+  ];
+  if (linkedAccount) lines.push(`Ad Account ID: act_${linkedAccount.adAccountId}`);
+  if (linkError) lines.push(`⚠️ Đã thêm khách hàng nhưng chưa gán được Ad Account: ${linkError}`);
+  await ctx.reply(lines.join("\n"), mainKeyboard);
   return true;
 }
 
@@ -1140,6 +1205,27 @@ async function handleFormAction(ctx) {
     return true;
   }
 
+  if (data === "adlink:yes" || data === "adlink:no") {
+    await ctx.answerCbQuery();
+    if (!form || form.type !== "add-customer" || form.step !== "link-account") {
+      await ctx.reply("Phiên thêm khách hàng đã hết. Vui lòng thử lại.");
+      return true;
+    }
+    try {
+      await ctx.editMessageReplyMarkup();
+    } catch (_) {}
+    if (data === "adlink:no") return finishAddCustomer(ctx, form);
+    form.step = "account";
+    await ctx.reply(
+      [
+        "Nhập <b>Ad Account ID</b> của khách hàng.",
+        "Ví dụ: <code>act_123456789</code> hoặc <code>123456789</code>.",
+      ].join("\n"),
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+
   if (data === "st:active" || data === "st:paused") {
     await ctx.answerCbQuery();
     if (!form) {
@@ -1157,35 +1243,8 @@ async function handleFormAction(ctx) {
         await ctx.reply("Thiếu tên hoặc lĩnh vực. Thử lại /add_khach_hang.");
         return true;
       }
-      const exists = await withSheet(ctx, () => sheets.findCustomerByName(form.data.name));
-      if (!exists.ok) return true;
-      if (exists.value) {
-        clearForm(ctx);
-        await ctx.reply(`Khách hàng "${form.data.name}" đã tồn tại.`, mainKeyboard);
-        return true;
-      }
-      const created = await withSheet(ctx, () =>
-        sheets.addCustomer({
-          name: form.data.name,
-          field: form.data.field,
-          status,
-        })
-      );
-      if (!created.ok) return true;
-      clearForm(ctx);
-      await ctx.reply(
-        [
-          "✅ Đã thêm khách hàng vào Google Sheet",
-          "",
-          `ID: ${created.value.id}`,
-          `Tên: ${created.value.name}`,
-          `Lĩnh vực: ${created.value.field}`,
-          `Trạng thái: ${created.value.status}`,
-          `Thời gian: ${created.value.createdAt}`,
-        ].join("\n"),
-        mainKeyboard
-      );
-      return true;
+      form.data.status = status;
+      return askCustomerAdAccount(ctx, form);
     }
 
     if (form.type === "change-status") {

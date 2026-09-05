@@ -9,6 +9,9 @@ const {
   campaignListKeyboard,
   dateRangeKeyboard,
   reportTimesKeyboard,
+  customerListActionsKeyboard,
+  customerManagePickKeyboard,
+  confirmDeleteCustomerKeyboard,
 } = require("./keyboards");
 const {
   formatCustomerList,
@@ -245,7 +248,9 @@ async function showCampaigns(ctx, customer) {
 async function showCustomers(ctx, status) {
   try {
     const list = await sheets.listCustomers(status);
-    await ctx.reply(formatCustomerList(list, status), mainKeyboard);
+    const statusKey = status === sheets.STATUS.ACTIVE ? "active" : status === sheets.STATUS.PAUSED ? "paused" : "all";
+    ctx.session.customerList = { status, statusKey, items: list };
+    await ctx.reply(formatCustomerList(list, status), customerListActionsKeyboard(statusKey));
   } catch (err) {
     console.error(err);
     await ctx.reply("Không đọc được Google Sheet.");
@@ -303,7 +308,7 @@ async function dispatchText(ctx) {
   if (isCmd(text, "dat_gio_bao_cao")) return forms.startSetReportTimes(ctx);
   if (isCmd(text, "gui_bao_cao")) return sendDigestNow(ctx);
 
-  if (isCmd(text, "khach_hang") || text === "👥 Khách hàng") {
+  if (isCmd(text, "danh_sach_khach_hang") || isCmd(text, "khach_hang") || text === "👥 Khách hàng") {
     forms.clearForm(ctx);
     return ctx.reply("Chọn danh sách khách hàng:", customerFilterKeyboard);
   }
@@ -349,6 +354,69 @@ async function dispatchCallback(ctx) {
   if (data === "kh:active") return showCustomers(ctx, sheets.STATUS.ACTIVE);
   if (data === "kh:paused") return showCustomers(ctx, sheets.STATUS.PAUSED);
   if (data === "kh:all") return showCustomers(ctx);
+  if (data === "kh:menu") {
+    forms.clearForm(ctx);
+    return ctx.reply("Chọn danh sách khách hàng:", customerFilterKeyboard);
+  }
+  if (data.startsWith("khact:")) {
+    const [, action, statusKey] = data.split(":");
+    const status = statusKey === "active" ? sheets.STATUS.ACTIVE : statusKey === "paused" ? sheets.STATUS.PAUSED : undefined;
+    if (action === "add") return forms.startAddCustomer(ctx, { status });
+    try {
+      const items = await sheets.listCustomers(status);
+      if (!items.length) return ctx.reply("Danh sách này chưa có khách hàng.");
+      ctx.session.customerManage = { action, status, statusKey, items };
+      return ctx.reply(
+        action === "delete" ? "Chọn khách hàng cần xóa:" : "Chọn khách hàng cần cập nhật trạng thái:",
+        customerManagePickKeyboard(items, action, statusKey)
+      );
+    } catch (err) {
+      console.error("Lỗi mở thao tác khách hàng:", err);
+      return ctx.reply("Không đọc được danh sách khách hàng.");
+    }
+  }
+  if (data.startsWith("khpick:")) {
+    const [, action, statusKey, rawIndex] = data.split(":");
+    const state = ctx.session.customerManage;
+    const customer = state?.action === action && state?.statusKey === statusKey
+      ? state.items[Number(rawIndex)]
+      : null;
+    if (!customer) return ctx.reply("Danh sách đã thay đổi. Vui lòng mở lại danh sách khách hàng.");
+    if (action === "delete") {
+      ctx.session.customerDelete = { customer, status: state.status };
+      return ctx.reply(`Xác nhận xóa khách hàng "${customer.name}"?`, confirmDeleteCustomerKeyboard());
+    }
+    if (action === "status") {
+      const nextStatus = customer.status === sheets.STATUS.ACTIVE ? sheets.STATUS.PAUSED : sheets.STATUS.ACTIVE;
+      try {
+        const updated = await sheets.updateCustomerStatus(customer.id, nextStatus);
+        if (!updated) return ctx.reply("Không tìm thấy khách hàng.");
+        await ctx.reply(`✅ Đã cập nhật "${customer.name}" → ${nextStatus}`);
+        return showCustomers(ctx, state.status);
+      } catch (err) {
+        console.error("Lỗi cập nhật trạng thái khách hàng:", err);
+        return ctx.reply("Không cập nhật được trạng thái khách hàng.");
+      }
+    }
+  }
+  if (data === "khdelete:no") {
+    ctx.session.customerDelete = null;
+    return ctx.reply("Đã hủy xóa khách hàng.", customerFilterKeyboard);
+  }
+  if (data === "khdelete:yes") {
+    const selected = ctx.session.customerDelete;
+    if (!selected?.customer) return ctx.reply("Phiên xác nhận đã hết. Vui lòng thử lại.");
+    try {
+      const deleted = await sheets.deleteCustomer(selected.customer.id);
+      ctx.session.customerDelete = null;
+      if (!deleted) return ctx.reply("Không tìm thấy khách hàng.");
+      await ctx.reply(`✅ Đã xóa khách hàng "${deleted.name}".`);
+      return showCustomers(ctx, selected.status);
+    } catch (err) {
+      console.error("Lỗi xóa khách hàng:", err);
+      return ctx.reply("Không xóa được khách hàng.");
+    }
+  }
   if (data === "go:add-budget") return forms.startAddBudget(ctx);
   if (data === "go:edit-budget") return forms.startEditBudget(ctx);
   if (data === "go:add-fee") return forms.startAddFee(ctx);
@@ -398,6 +466,7 @@ async function runPolling() {
   await tg.setMyCommands([
     { command: "add_khach_hang", description: "Thêm khách hàng" },
     { command: "khach_hang", description: "Danh sách khách hàng" },
+    { command: "danh_sach_khach_hang", description: "Danh sách và quản lý khách hàng" },
     { command: "dang_trien_khai", description: "KH đang triển khai" },
     { command: "tam_ngung", description: "KH tạm ngưng" },
     { command: "ngan_sach", description: "Ngân sách" },
