@@ -321,6 +321,8 @@ async function dispatchText(ctx) {
   if (text === "👥 Khách hàng") {
     forms.clearForm(ctx);
     ctx.session.awaitingCheckUid = false;
+    // Refresh the persistent reply keyboard before sending the inline submenu.
+    await ctx.reply("👥 Khách hàng", mainKeyboard);
     return ctx.reply("Chọn mục quản lý khách hàng:", customerMenuKeyboard);
   }
 
@@ -415,9 +417,10 @@ async function dispatchCallback(ctx) {
   console.log("CALLBACK:", data);
   if (await forms.handleFormAction(ctx)) return;
   await ctx.answerCbQuery().catch(() => {});
-  if (["customer-menu:accounts", "customer-menu:budgets", "customer-menu:fees"].includes(data)) {
+  if (["customer-menu:list", "customer-menu:accounts", "customer-menu:budgets", "customer-menu:fees"].includes(data)) {
     forms.clearForm(ctx);
     ctx.session.awaitingCheckUid = false;
+    if (data === "customer-menu:list") return ctx.reply("Chọn danh sách khách hàng:", customerFilterKeyboard);
     if (data === "customer-menu:accounts") return showAdAccountCustomers(ctx);
     if (data === "customer-menu:budgets") return showBudgets(ctx);
     return showFees(ctx);

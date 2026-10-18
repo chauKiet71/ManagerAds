@@ -11,6 +11,7 @@ const mainKeyboard = {
 const customerMenuKeyboard = {
   reply_markup: {
     inline_keyboard: [
+      [{ text: "Danh sách khách hàng", callback_data: "customer-menu:list" }],
       [{ text: "TaiKhoanAds", callback_data: "customer-menu:accounts" }],
       [{ text: "NganSach", callback_data: "customer-menu:budgets" }],
       [{ text: "ThuPhiDV", callback_data: "customer-menu:fees" }],
