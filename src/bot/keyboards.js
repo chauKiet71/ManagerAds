@@ -2,10 +2,19 @@ const mainKeyboard = {
   reply_markup: {
     keyboard: [
       [{ text: "👥 Khách hàng" }],
-      [{ text: "💰 Ngân sách" }, { text: "🧾 Thu phí DV" }],
-      [{ text: "📊 Chiến dịch" }, { text: "📋 DS TKQC" }],
+      [{ text: "📊 Chiến dịch" }],
     ],
     resize_keyboard: true,
+  },
+};
+
+const customerMenuKeyboard = {
+  reply_markup: {
+    inline_keyboard: [
+      [{ text: "TaiKhoanAds", callback_data: "customer-menu:accounts" }],
+      [{ text: "NganSach", callback_data: "customer-menu:budgets" }],
+      [{ text: "ThuPhiDV", callback_data: "customer-menu:fees" }],
+    ],
   },
 };
 
@@ -290,6 +299,7 @@ function feePickKeyboard(fees) {
 
 module.exports = {
   mainKeyboard,
+  customerMenuKeyboard,
   customerFilterKeyboard,
   statusKeyboard,
   customerPickKeyboard,

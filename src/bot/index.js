@@ -2,6 +2,7 @@ const config = require("../config");
 const sheets = require("../sheets");
 const tg = require("../telegram");
 const {
+  customerMenuKeyboard,
   customerFilterKeyboard,
   mainKeyboard,
   listActionKeyboard,
@@ -303,9 +304,25 @@ async function showBudgets(ctx) {
   }
 }
 
+async function showFees(ctx) {
+  try {
+    const list = await sheets.listFees();
+    return ctx.reply(formatFeeList(list), feeListKeyboard(list));
+  } catch (err) {
+    console.error(err);
+    return ctx.reply("Không đọc được Google Sheet.");
+  }
+}
+
 async function dispatchText(ctx) {
   const text = (ctx.message?.text || "").trim();
   console.log("TEXT:", JSON.stringify(text), "form:", ctx.session?.form?.type, ctx.session?.form?.step);
+
+  if (text === "👥 Khách hàng") {
+    forms.clearForm(ctx);
+    ctx.session.awaitingCheckUid = false;
+    return ctx.reply("Chọn mục quản lý khách hàng:", customerMenuKeyboard);
+  }
 
   if (isCmd(text, "huy") || text.toLowerCase() === "hủy") {
     if (forms.getForm(ctx)) return forms.cancelForm(ctx);
@@ -362,7 +379,7 @@ async function dispatchText(ctx) {
   if (isCmd(text, "dat_gio_bao_cao")) return forms.startSetReportTimes(ctx);
   if (isCmd(text, "gui_bao_cao")) return sendDigestNow(ctx);
 
-  if (isCmd(text, "danh_sach_khach_hang") || text === "👥 Khách hàng") {
+  if (isCmd(text, "danh_sach_khach_hang")) {
     forms.clearForm(ctx);
     return ctx.reply("Chọn danh sách khách hàng:", customerFilterKeyboard);
   }
@@ -384,13 +401,7 @@ async function dispatchText(ctx) {
   }
   if (isCmd(text, "thu_phi_dv") || text === "🧾 Thu phí DV") {
     forms.clearForm(ctx);
-    try {
-      const list = await sheets.listFees();
-      return ctx.reply(formatFeeList(list), feeListKeyboard(list));
-    } catch (err) {
-      console.error(err);
-      return ctx.reply("Không đọc được Google Sheet.");
-    }
+    return showFees(ctx);
   }
 
   if (text.startsWith("/")) {
@@ -404,6 +415,13 @@ async function dispatchCallback(ctx) {
   console.log("CALLBACK:", data);
   if (await forms.handleFormAction(ctx)) return;
   await ctx.answerCbQuery().catch(() => {});
+  if (["customer-menu:accounts", "customer-menu:budgets", "customer-menu:fees"].includes(data)) {
+    forms.clearForm(ctx);
+    ctx.session.awaitingCheckUid = false;
+    if (data === "customer-menu:accounts") return showAdAccountCustomers(ctx);
+    if (data === "customer-menu:budgets") return showBudgets(ctx);
+    return showFees(ctx);
+  }
   if (data === "kh:active") return showCustomers(ctx, sheets.STATUS.ACTIVE);
   if (data === "kh:paused") return showCustomers(ctx, sheets.STATUS.PAUSED);
   if (data === "kh:all") return showCustomers(ctx);

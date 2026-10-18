@@ -126,3 +126,33 @@ test("Digest shows selected labels, and mixed/unknown result totals as dash", as
   assert.match(text, /KQ — \(Chưa xác định\)/);
   assert.match(text, /Tổng: .*KQ —/);
 });
+
+test("Hide all-zero campaigns and empty customers; keep any nonzero metric", async () => {
+  const zero = { spend: 0, impressions: 0, reach: 0, clicks: 0, results: 0, resultType: "messages" };
+  let allEmpty = false;
+  const api = loadModule("adsReport.js", {
+    "./config": { metaAccessToken: "test" },
+    "./sheets": { listAdAccounts: async () => [
+      { adAccountId: "1", customer: "Empty customer" },
+      { adAccountId: "2", customer: "Active customer" },
+    ] },
+    "./meta": { getCampaignInsights: async (id) => id === "1" || allEmpty
+      ? [{ ...zero, name: "Zero campaign" }]
+      : [
+        { ...zero, name: "String zeros", spend: "0", results: "0" },
+        ...["spend", "impressions", "reach", "clicks", "results"].map((metric) => ({ ...zero, name: metric, [metric]: 10 })),
+      ] },
+    "./utils": { formatMoney: String, nowTimeLabel: () => "12:00", todayStr: () => date.date_start },
+  });
+  const report = await api.loadCampaignInsights({ since: date.date_start, until: date.date_stop });
+  assert.equal(report.items.length, 5);
+  assert.equal(report.items.find((row) => row.name === "spend").results, 0);
+  for (const metric of ["spend", "impressions", "reach", "clicks", "results"]) assert.equal(report.totals[metric], 10);
+  const text = api.formatDigestReport(report, { label: "Today", display: "18/10" });
+  assert.doesNotMatch(text, /Empty customer|Zero campaign|String zeros/);
+  assert.match(text, /Active customer/);
+  allEmpty = true;
+  const empty = await api.loadCampaignInsights({ since: date.date_start, until: date.date_stop });
+  assert.equal(empty.items.length, 0);
+  assert.doesNotMatch(api.formatDigestReport(empty, { label: "Today", display: "18/10" }), /▸/);
+});
