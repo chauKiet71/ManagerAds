@@ -1,30 +1,10 @@
 const config = require("./config");
 const { isoToDisplay } = require("./utils");
-
-const RESULT_TYPES = new Set([
-  "onsite_conversion.messaging_conversation_started_7d",
-  "onsite_conversion.total_messaging_connection",
-  "lead",
-  "offsite_conversion.fb_pixel_lead",
-  "offsite_conversion.fb_pixel_purchase",
-  "purchase",
-  "omni_purchase",
-]);
+const { nativeResult, derivedResult } = require("./metaResults");
 
 function normalizeAdAccountId(raw) {
   const digits = String(raw || "").replace(/[^\d]/g, "");
   return digits || null;
-}
-
-function sumResults(actions) {
-  if (!Array.isArray(actions)) return 0;
-  let total = 0;
-  for (const item of actions) {
-    if (RESULT_TYPES.has(item.action_type)) {
-      total += Number(item.value) || 0;
-    }
-  }
-  return Math.round(total);
 }
 
 async function graphGet(path, params) {
@@ -40,9 +20,25 @@ async function graphGet(path, params) {
   const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
   const data = await res.json();
   if (data.error) {
-    throw new Error(data.error.message || JSON.stringify(data.error));
+    const error = new Error(data.error.message || "Meta API error");
+    error.code = data.error.code;
+    throw error;
   }
   return data;
+}
+
+async function graphList(path, params) {
+  const rows = [];
+  for (let page = 0; page < 100; page += 1) {
+    const data = await graphGet(path, params);
+    rows.push(...(data.data || []));
+    if (!data.paging?.next) return rows;
+    const nextUrl = new URL(data.paging.next);
+    path = nextUrl.pathname.replace(`/${config.metaApiVersion}`, "");
+    params = Object.fromEntries(nextUrl.searchParams.entries());
+    delete params.access_token;
+  }
+  throw new Error("Meta trả về quá nhiều trang; chưa thể tạo báo cáo đầy đủ.");
 }
 
 async function getCampaignInsights(adAccountId, dateOrRange, options = {}) {
@@ -62,37 +58,47 @@ async function getCampaignInsights(adAccountId, dateOrRange, options = {}) {
   }
 
   const rows = [];
-  let path = `/act_${actId}/insights`;
-  let params = {
+  const path = `/act_${actId}/insights`;
+  const params = {
     level: "campaign",
     fields: "campaign_id,campaign_name,spend,reach,impressions,clicks,actions,date_start,date_stop",
     time_range: JSON.stringify({ since, until }),
+    use_unified_attribution_setting: true,
     limit: 100,
   };
   if (daily) params.time_increment = 1;
 
-  for (let page = 0; page < 20; page += 1) {
-    const data = await graphGet(path, params);
-    for (const item of data.data || []) {
-      rows.push({
-        campaignId: item.campaign_id || "",
-        name: item.campaign_name || "",
-        spend: Math.round(Number(item.spend) || 0),
-        reach: Math.round(Number(item.reach || item.impressions) || 0),
-        clicks: Math.round(Number(item.clicks) || 0),
-        results: sumResults(item.actions),
-        impressions: Math.round(Number(item.impressions) || 0),
-        date: isoToDisplay(item.date_start || since),
-        dateStop: isoToDisplay(item.date_stop || until),
-        platform: "Facebook",
-      });
-    }
-    const next = data.paging?.next;
-    if (!next) break;
-    const nextUrl = new URL(next);
-    path = nextUrl.pathname.replace(`/${config.metaApiVersion}`, "") || path;
-    params = Object.fromEntries(nextUrl.searchParams.entries());
-    delete params.access_token;
+  let campaigns;
+  try {
+    campaigns = await graphList(path, { ...params, fields: `${params.fields},results` });
+  } catch (error) {
+    // Older API versions (including v21) may not expose native results.
+    if (error.code !== 100 || !/results/i.test(error.message) || !/field|valid/i.test(error.message)) throw error;
+    campaigns = await graphList(path, params);
+  }
+  let delivery = [];
+  let adsets = new Map();
+  if (campaigns.some((item) => nativeResult(item.results) === null)) {
+    const [deliveryRows, settings] = await Promise.all([
+      graphList(path, { ...params, level: "adset", fields: "campaign_id,adset_id,spend,impressions,date_start,date_stop" }),
+      graphList(`/act_${actId}/adsets`, { fields: "id,optimization_goal,destination_type,promoted_object", limit: 100 }),
+    ]);
+    delivery = deliveryRows;
+    adsets = new Map(settings.map((item) => [item.id, item]));
+  }
+  for (const item of campaigns) {
+    rows.push({
+      campaignId: item.campaign_id || "",
+      name: item.campaign_name || "",
+      spend: Math.round(Number(item.spend) || 0),
+      reach: Math.round(Number(item.reach || item.impressions) || 0),
+      clicks: Math.round(Number(item.clicks) || 0),
+      ...(nativeResult(item.results) || derivedResult(item, delivery, adsets)),
+      impressions: Math.round(Number(item.impressions) || 0),
+      date: isoToDisplay(item.date_start || since),
+      dateStop: isoToDisplay(item.date_stop || until),
+      platform: "Facebook",
+    });
   }
 
   return rows;

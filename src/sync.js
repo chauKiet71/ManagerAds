@@ -51,7 +51,7 @@ async function syncYesterday() {
           spend: row.spend,
           reach: row.reach,
           clicks: row.clicks,
-          results: row.results,
+          results: row.results ?? "",
           date: row.date || displayDate,
         });
         campaigns += 1;

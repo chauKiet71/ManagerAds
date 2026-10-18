@@ -4,6 +4,7 @@ const meta = require("./meta");
 const { formatMoney, nowTimeLabel, todayStr, resolveDateRange } = require("./utils");
 
 function formatCount(value) {
+  if (value == null || value === "") return "—";
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("vi-VN");
@@ -29,7 +30,7 @@ function emptyResult(range, customer, error) {
 }
 
 function sumTotals(items) {
-  return items.reduce(
+  const totals = items.reduce(
     (acc, row) => {
       acc.spend += Number(row.spend) || 0;
       acc.reach += Number(row.reach) || 0;
@@ -40,6 +41,9 @@ function sumTotals(items) {
     },
     { spend: 0, reach: 0, clicks: 0, results: 0, impressions: 0 }
   );
+  const types = new Set(items.map((item) => item.resultType));
+  if (items.some((item) => item.results == null) || types.size > 1) totals.results = null;
+  return totals;
 }
 
 async function loadCampaignInsights({ customer, since, until }) {
@@ -138,7 +142,7 @@ function formatPeriodReport(result, rangeInfo) {
     lines.push(`   Chiến dịch: ${c.name || "—"}`);
     lines.push(`   Chi tiêu: ${c.spend ? formatMoney(c.spend) : "—"}`);
     lines.push(`   Tiếp cận: ${formatCount(c.reach)}  |  Click: ${formatCount(c.clicks)}`);
-    lines.push(`   Kết quả: ${formatCount(c.results)}  |  CTR: ${pct(c.clicks, c.impressions || c.reach)}`);
+    lines.push(`   Kết quả: ${formatCount(c.results)}${c.resultLabel ? ` (${c.resultLabel})` : ""}  |  CTR: ${pct(c.clicks, c.impressions || c.reach)}`);
     lines.push("");
   });
   if (result.errors.length) {
@@ -182,7 +186,7 @@ function formatDigestReport(result, rangeInfo) {
     );
     rows.slice(0, 8).forEach((c) => {
       lines.push(
-        `  • ${c.name || "—"} — ${c.spend ? formatMoney(c.spend) : "0 đ"} — KQ ${formatCount(c.results)}`
+        `  • ${c.name || "—"} — ${c.spend ? formatMoney(c.spend) : "0 đ"} — KQ ${formatCount(c.results)}${c.resultLabel ? ` (${c.resultLabel})` : ""}`
       );
     });
     if (rows.length > 8) lines.push(`  … +${rows.length - 8} chiến dịch`);
@@ -192,6 +196,7 @@ function formatDigestReport(result, rangeInfo) {
   lines.push(
     `Tổng: ${formatMoney(t.spend)}  |  KQ ${formatCount(t.results)}  |  Click ${formatCount(t.clicks)}`
   );
+  if (t.results == null) lines.push("KQ tổng: — khi khác loại kết quả hoặc chưa xác định được chỉ số.");
   if (result.errors.length) {
     lines.push("", "Lỗi:");
     result.errors.slice(0, 5).forEach((e) => lines.push(`- ${e}`));

@@ -55,7 +55,7 @@ Telegram không cho dấu `-` trong lệnh. Dùng dấu `_`.
 | Lệnh | Việc |
 |---|---|
 | `/add_khach_hang` | Thêm KH: tên, lĩnh vực, trạng thái. Ngày tạo lấy hôm nay |
-| `/khach_hang` | Menu: đang triển khai / tạm ngưng / tất cả |
+| `/danh_sach_khach_hang` | Menu: đang triển khai / tạm ngưng / tất cả |
 | `/dang_trien_khai` | Danh sách đang triển khai |
 | `/tam_ngung` | Danh sách tạm ngưng |
 | `/doi_trang_thai` | Đổi trạng thái KH |
@@ -91,6 +91,10 @@ Bot **không đăng nhập Ads Manager**. Một token Business Manager dùng chu
 4. Trong Telegram: `/gan_ad_account` cho từng khách, rồi `/dong_bo_ads` lần đầu để kiểm tra token.
 
 Token System User không hết hạn nếu không bị thu hồi. Số kéo về (level = campaign, mặc định hôm qua): tên, chi tiêu, tiếp cận, click, kết quả (tin nhắn / lead / purchase). Tab `ChienDich` upsert theo `Campaign ID + Ngày` nên không nhân dòng.
+
+KQ ưu tiên trường `results` của Meta theo từng chiến dịch, dùng thiết lập ghi nhận chuyển đổi của nhóm quảng cáo (`use_unified_attribution_setting`). Nếu phiên bản API không hỗ trợ hoặc không trả về trường này, bot đọc mục tiêu tối ưu và sự kiện chuyển đổi của các nhóm quảng cáo có phân phối trong khoảng báo cáo để chọn đúng một chỉ số: cuộc trò chuyện, mua trên web, xem trang đích, v.v. Không cộng các biến thể của cùng một hành động. Trường hợp nhiều loại kết quả, nhiều cửa sổ ghi nhận hoặc mục tiêu chưa hỗ trợ sẽ hiển thị `—`; tổng KQ cũng không cộng các loại kết quả khác nhau. Cấu hình nhóm quảng cáo là cấu hình hiện tại, nên báo cáo lịch sử sau khi đổi mục tiêu cần đối chiếu lại Ads Manager. Cần so sánh cùng khoảng ngày và thiết lập ghi nhận chuyển đổi. Số đã lưu trước đây trong Sheet chỉ đổi khi đồng bộ lại ngày đó.
+
+Kiểm thử logic báo cáo và theo dõi UID: `node --test` (không gọi Meta, Telegram hoặc Google Sheets).
 
 ## 5. Deploy lên Railway
 

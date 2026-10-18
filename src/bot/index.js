@@ -362,7 +362,7 @@ async function dispatchText(ctx) {
   if (isCmd(text, "dat_gio_bao_cao")) return forms.startSetReportTimes(ctx);
   if (isCmd(text, "gui_bao_cao")) return sendDigestNow(ctx);
 
-  if (isCmd(text, "danh_sach_khach_hang") || isCmd(text, "khach_hang") || text === "👥 Khách hàng") {
+  if (isCmd(text, "danh_sach_khach_hang") || text === "👥 Khách hàng") {
     forms.clearForm(ctx);
     return ctx.reply("Chọn danh sách khách hàng:", customerFilterKeyboard);
   }
@@ -611,7 +611,6 @@ async function runPolling() {
   console.log(`Bot @${me.username} sẵn sàng`);
   await tg.setMyCommands([
     { command: "add_khach_hang", description: "Thêm khách hàng" },
-    { command: "khach_hang", description: "Danh sách khách hàng" },
     { command: "danh_sach_khach_hang", description: "Danh sách và quản lý khách hàng" },
     { command: "dang_trien_khai", description: "KH đang triển khai" },
     { command: "tam_ngung", description: "KH tạm ngưng" },
