@@ -77,9 +77,9 @@ async function loadCampaignInsights({ customer, since, until }) {
         { daily: false }
       );
       for (const row of rows) {
-        const allZero = [row.spend, row.impressions, row.reach, row.clicks, row.results]
-          .every((value) => value != null && value !== "" && Number(value) === 0);
-        if (allZero) continue;
+        const noActivity = [row.spend, row.impressions, row.reach, row.clicks, row.results]
+          .every((value) => value == null || value === "" || Number(value) === 0);
+        if (noActivity) continue;
         items.push({
           ...row,
           customer: acc.customer,

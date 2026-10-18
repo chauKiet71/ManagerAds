@@ -114,7 +114,7 @@ test("Digest shows selected labels, and mixed/unknown result totals as dash", as
     "./meta": { getCampaignInsights: async () => [
       { name: "Messages", results: 24, resultType: "messages", resultLabel: "Lượt bắt đầu cuộc trò chuyện" },
       { name: "Purchases", results: 3, resultType: "purchase", resultLabel: "Lượt mua trên web" },
-      { name: "Unknown", results: null, resultType: "", resultLabel: "Chưa xác định" },
+      { name: "Unknown", spend: 100, results: null, resultType: "", resultLabel: "Chưa xác định" },
     ] },
     "./utils": { formatMoney: String, nowTimeLabel: () => "12:00", todayStr: () => date.date_start },
   });
@@ -137,9 +137,12 @@ test("Hide all-zero campaigns and empty customers; keep any nonzero metric", asy
       { adAccountId: "2", customer: "Active customer" },
     ] },
     "./meta": { getCampaignInsights: async (id) => id === "1" || allEmpty
-      ? [{ ...zero, name: "Zero campaign" }]
+      ? [{ ...zero, name: "Zero campaign" }, { ...zero, name: "Điện máy THP_22_03", results: null }]
       : [
         { ...zero, name: "String zeros", spend: "0", results: "0" },
+        { ...zero, name: "Vòng ngọc 16/6", results: null },
+        { ...zero, name: "Missing results", results: undefined },
+        { ...zero, name: "Empty results", results: "" },
         ...["spend", "impressions", "reach", "clicks", "results"].map((metric) => ({ ...zero, name: metric, [metric]: 10 })),
       ] },
     "./utils": { formatMoney: String, nowTimeLabel: () => "12:00", todayStr: () => date.date_start },
@@ -149,7 +152,9 @@ test("Hide all-zero campaigns and empty customers; keep any nonzero metric", asy
   assert.equal(report.items.find((row) => row.name === "spend").results, 0);
   for (const metric of ["spend", "impressions", "reach", "clicks", "results"]) assert.equal(report.totals[metric], 10);
   const text = api.formatDigestReport(report, { label: "Today", display: "18/10" });
-  assert.doesNotMatch(text, /Empty customer|Zero campaign|String zeros/);
+  assert.doesNotMatch(text, /Empty customer|Zero campaign|String zeros|Điện máy THP_22_03|Vòng ngọc 16\/6|Missing results|Empty results/);
+  const periodText = api.formatPeriodReport(report, { label: "Today", display: "18/10" });
+  assert.doesNotMatch(periodText, /Điện máy THP_22_03|Vòng ngọc 16\/6|Missing results|Empty results/);
   assert.match(text, /Active customer/);
   allEmpty = true;
   const empty = await api.loadCampaignInsights({ since: date.date_start, until: date.date_stop });
