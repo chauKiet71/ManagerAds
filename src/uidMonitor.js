@@ -81,6 +81,10 @@ function transitionLine(uid, previous, next) {
   return `UID ${uid}: ${previous} => ${next}`;
 }
 
+function shouldNotifyUidDeath(previous, status) {
+  return previous === STATUS.LIVE && status === STATUS.DIE;
+}
+
 function splitUidMessage(message, maxLength = 3800) {
   const chunks = [];
   let current = "";
@@ -225,7 +229,7 @@ function rescheduleRealtimeUidChecks() {
           const previous = monitor.status;
           monitor.status = result.status;
           changed = true;
-          if (monitor.chatId) {
+          if (monitor.chatId && shouldNotifyUidDeath(previous, result.status)) {
             await uidBot
               .sendMessage(monitor.chatId, `🔔 UID ${uid}: ${previous.toUpperCase()} => ${result.status.toUpperCase()} (realtime)`)
               .catch((err) => console.error("Không gửi được thông báo UID realtime:", err.message || err));
@@ -330,10 +334,8 @@ async function checkUidListNow(uids, { chatId = "", bot = null, mode = "file" } 
   } else if (mode === "scheduled") {
     for (const item of details) {
       if (item.error || !item.status) continue;
-      if (item.changed) {
+      if (shouldNotifyUidDeath(item.previous, item.status)) {
         lines.push(`🔔 ${transitionLine(item.uid, item.previous, item.status)}`);
-      } else {
-        lines.push(`✅ UID ${item.uid}: ${item.status.toUpperCase()} (đã kiểm tra theo lịch)`);
       }
     }
   } else {

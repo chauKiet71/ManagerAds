@@ -192,8 +192,8 @@ async function handleCheckUid(ctx, suppliedUid = null) {
       return ctx.reply(`UID ${uidList[0]}: lỗi kiểm tra (${result.error || "Không xác định được trạng thái"})`);
     }
     return ctx.reply(
-      `UID ${result.uid}: ${result.status.toUpperCase()}\n` +
-        `Đã bật theo dõi realtime mỗi ${result.intervalSeconds} giây; bot sẽ báo khi LIVE ↔ DIE.`
+      `Đã lưu trạng thái ban đầu của UID ${result.uid}.\n` +
+        `Đã bật theo dõi realtime mỗi ${result.intervalSeconds} giây; bot chỉ báo khi LIVE → DIE.`
     );
   } catch (err) {
     console.error("Lỗi /check_uid:", err);
